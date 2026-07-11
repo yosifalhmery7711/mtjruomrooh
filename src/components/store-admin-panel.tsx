@@ -122,6 +122,7 @@ export default function AdminPanel({
   const [isMigratingSupabase, setIsMigratingSupabase] = useState(false);
   const [migrationLogs, setMigrationLogs] = useState<string[]>([]);
   const [migrationProgress, setMigrationProgress] = useState<Record<string, MigrationProgress>>({});
+  const [isAdminRefreshing, setIsAdminRefreshing] = useState(false);
   
   // Custom source Firebase credentials for migration
   const [sourceFirebase, setSourceFirebase] = useState({
@@ -429,16 +430,8 @@ export default function AdminPanel({
   const syncRealtimeData = async () => {
     if (isSupabaseConfigured()) {
       try {
-        const [orderRes, rechRes] = await Promise.all([
-          supabase!.from('orders').select('*'),
-          supabase!.from('recharges').select('*')
-        ]);
-        if (orderRes.data) {
-          localStorage.setItem('ruh_store_orders', JSON.stringify(orderRes.data));
-        }
-        if (rechRes.data) {
-          localStorage.setItem('ruh_store_recharges', JSON.stringify(rechRes.data));
-        }
+        // Force sync all tables from Supabase/Firestore to local storage bypassing throttle
+        await Database.syncFromFirestore(undefined, true);
         reloadData();
       } catch (err) {
         console.error("Realtime fetch sync failed:", err);
@@ -492,9 +485,41 @@ export default function AdminPanel({
       )
       .subscribe();
 
+    // Listen to phone_requests table changes
+    const phoneRequestsChannel = supabase!
+      .channel('admin-phone-requests-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'phone_requests' },
+        async (payload) => {
+          console.log('Realtime change detected in phone_requests:', payload);
+          showToast('🔑 طلب تفعيل جهاز أو تغيير هاتف جديد!');
+          if (navigator.vibrate) navigator.vibrate([250, 100, 250]);
+          playNotificationSound();
+          await syncRealtimeData();
+        }
+      )
+      .subscribe();
+
+    // Listen to users table changes
+    const usersChannel = supabase!
+      .channel('admin-users-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'users' },
+        async (payload) => {
+          console.log('Realtime change detected in users:', payload);
+          showToast('👤 تم رصد تسجيل عميل جديد أو تحديث بيانات!');
+          await syncRealtimeData();
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase!.removeChannel(ordersChannel);
       supabase!.removeChannel(rechargesChannel);
+      supabase!.removeChannel(phoneRequestsChannel);
+      supabase!.removeChannel(usersChannel);
     };
   }, []);
 
@@ -1973,15 +1998,28 @@ export default function AdminPanel({
             <span>خروج من الإدارة</span>
           </button>
           <button
-            onClick={() => {
-              reloadData();
-              showToast('🔄 تم تحديث لوحة الإدارة وكافة البيانات فوراً بنجاح!');
+            onClick={async () => {
+              setIsAdminRefreshing(true);
+              try {
+                if (isSupabaseConfigured()) {
+                  // Force a clean sync bypass throttle to fetch latest database rows
+                  await Database.syncFromFirestore(undefined, true);
+                }
+                reloadData();
+                showToast('🔄 تم جلب وتحديث لوحة الإدارة وكافة البيانات من السحاب بنجاح! ☁️');
+              } catch (err) {
+                console.error("Manual admin sync failed:", err);
+                showToast('❌ عذراً، فشل تحديث البيانات من السحاب!');
+              } finally {
+                setIsAdminRefreshing(false);
+              }
             }}
-            className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 p-2 rounded-xl text-emerald-800 dark:text-emerald-200 transition flex items-center gap-1.5 font-bold text-xs shadow-sm"
+            disabled={isAdminRefreshing}
+            className={`bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 p-2 rounded-xl text-emerald-800 dark:text-emerald-200 transition flex items-center gap-1.5 font-bold text-xs shadow-sm ${isAdminRefreshing ? 'opacity-60 cursor-not-allowed' : ''}`}
             title="تحديث البيانات يدويًا"
           >
-            <RefreshCw className="w-4 h-4" />
-            <span>تحديث البيانات 🔄</span>
+            <RefreshCw className={`w-4 h-4 ${isAdminRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isAdminRefreshing ? 'جاري التحديث... 🔄' : 'تحديث البيانات 🔄'}</span>
           </button>
         </div>
 
