@@ -774,8 +774,9 @@ export class Database {
               saveToStorage(this.KEYS.USER, active);
             }
             let found = parsedUsers.find(u => u.id === active.id);
-            if (!found && currentIp) {
-              found = parsedUsers.find(u => u.ip === currentIp && u.isRegistered);
+            const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
+            if (!found && currentDevId) {
+              found = parsedUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
             }
             if (found) {
               saveToStorage(this.KEYS.USER, found);
@@ -1006,9 +1007,6 @@ export class Database {
           const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
           if (!found && currentDevId) {
             found = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
-          }
-          if (!found && currentIp) {
-            found = allUsers.find(u => u.ip === currentIp && u.isRegistered);
           }
           if (found) {
             if (!found.deviceId && currentDevId) {
@@ -1475,7 +1473,7 @@ export class Database {
         name: (user.name && !user.name.startsWith('عميل_جديد_')) ? user.name : existing.name,
         address: user.address || existing.address,
         currency: user.currency || existing.currency,
-        deviceId: user.deviceId || existing.deviceId,
+        deviceId: existing.deviceId || user.deviceId,
         ip: user.ip || existing.ip,
         isRegistered: user.isRegistered || existing.isRegistered,
         balance: Math.max(user.balance || 0, existing.balance || 0),

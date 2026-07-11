@@ -503,19 +503,7 @@ export default function App() {
     }
   }, [products]);
 
-  // Account Recovery check based on IP Detection
-  useEffect(() => {
-    if (user && !user.isRegistered && !isSyncing) {
-      const allUsers = Database.getAllUsers();
-      const currentIp = user.ip;
-      if (currentIp) {
-        const found = allUsers.find(u => u.ip === currentIp && u.isRegistered);
-        if (found && found.id !== user.id) {
-          setSuggestedRecoveryUser(found);
-        }
-      }
-    }
-  }, [user, isSyncing]);
+  // Account Recovery check based on IP Detection has been removed to avoid collision and accidental hijack on mobile carrier CGNAT IPs.
 
   // Keep track of shown system notification IDs to avoid double alerts
   const systemNotifiedIdsRef = React.useRef<string[]>([]);
@@ -957,10 +945,58 @@ export default function App() {
 
   // ----------------------------------------------------
   // --- PROFILE EDITS SYNC ---
-  const handleUpdateUser = (updatedUser: User) => {
-    const savedUser = Database.saveUser(updatedUser);
-    setUser(savedUser);
-    handleReloadAll();
+  const handleUpdateUser = async (updatedUser: User) => {
+    setIsSyncing(true);
+    try {
+      // If we are registering (i.e. transitioning from unregistered to registered)
+      if (!user.isRegistered && updatedUser.isRegistered) {
+        // Double check if the phone number already exists in Supabase
+        let existingUser = null;
+        if (isSupabaseConfigured()) {
+          const { data } = await supabase!
+            .from('users')
+            .select('*')
+            .eq('phone', updatedUser.phone);
+          if (data && data.length > 0) {
+            existingUser = data[0];
+          }
+        } else {
+          const allUsers = Database.getAllUsers();
+          existingUser = allUsers.find(u => u.phone === updatedUser.phone);
+        }
+
+        if (existingUser) {
+          // It exists! We must merge with it.
+          const savedUser = Database.saveUser({
+            ...updatedUser,
+            id: existingUser.id,
+            deviceId: existingUser.deviceId || updatedUser.deviceId
+          });
+          setUser(savedUser);
+          
+          // Trigger the periodic check immediately to block them if device ID is different
+          const currentDeviceId = localStorage.getItem('amrwh_device_id') || '';
+          const blocked = await Database.checkIsDeviceBlocked(savedUser.phone, currentDeviceId);
+          setIsDeviceBlocked(blocked);
+          if (blocked) {
+            const pending = await Database.checkPendingUnlockRequest(savedUser.phone, currentDeviceId);
+            setIsUnlockRequestPending(pending);
+          }
+          setIsSyncing(false);
+          handleReloadAll();
+          return;
+        }
+      }
+
+      // Default saving
+      const savedUser = Database.saveUser(updatedUser);
+      setUser(savedUser);
+      handleReloadAll();
+    } catch (err) {
+      console.error("Failed to update/register user:", err);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleToggleFavorite = (productId: string) => {
@@ -1716,6 +1752,13 @@ export default function App() {
                     >
                       <span>إرسال الطلب عبر واتساب 💬</span>
                     </button>
+                    <button
+                      onClick={triggerSync}
+                      disabled={isSyncing}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-amber-950 font-black text-xs py-2.5 px-4 rounded-xl shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <span>{isSyncing ? 'جاري التحديث والتحقق... ⏳' : 'تحديث والتحقق من التفعيل 🔄'}</span>
+                    </button>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1747,23 +1790,84 @@ export default function App() {
                           className="flex-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2 text-xs text-right font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-900 dark:text-white"
                         />
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (!/^\d{9}$/.test(newPhoneInput)) {
                               setChangePhoneError('رقم الهاتف يجب أن يتكون من 9 أرقام!');
                               return;
                             }
-                            const updatedUser = {
-                              ...user,
-                              phone: newPhoneInput,
-                              isRegistered: true
-                            };
-                            const savedUser = Database.saveUser(updatedUser);
-                            setUser(savedUser);
-                            setIsDeviceBlocked(false);
-                            setNewPhoneInput('');
-                            setChangePhoneError('');
+                            
+                            setIsSyncing(true);
+                            try {
+                              let existingUser = null;
+                              if (isSupabaseConfigured()) {
+                                const { data } = await supabase!
+                                  .from('users')
+                                  .select('*')
+                                  .eq('phone', newPhoneInput);
+                                if (data && data.length > 0) {
+                                  existingUser = data[0];
+                                }
+                              } else {
+                                const allUsers = Database.getAllUsers();
+                                existingUser = allUsers.find(u => u.phone === newPhoneInput);
+                              }
+
+                              const currentDeviceId = localStorage.getItem('amrwh_device_id') || '';
+
+                              if (existingUser) {
+                                // If the phone number is already registered, check if its device matches current device
+                                const dbDevId = existingUser.deviceId || '';
+                                const cleanDbDevId = dbDevId.split('|IP:')[0];
+                                const cleanCurrentDevId = currentDeviceId.split('|IP:')[0];
+
+                                if (cleanDbDevId && cleanDbDevId !== cleanCurrentDevId) {
+                                  setChangePhoneError('رقم الهاتف الجديد مسجل بالفعل على جهاز آخر!');
+                                  setIsSyncing(false);
+                                  return;
+                                }
+
+                                // Otherwise log in as this user on this device
+                                const savedUser = Database.saveUser({
+                                  ...existingUser,
+                                  deviceId: currentDeviceId,
+                                  isRegistered: true
+                                });
+                                setUser(savedUser);
+                                setIsDeviceBlocked(false);
+                              } else {
+                                // Create a fresh user record avoiding contaminating other users
+                                const newUserId = '9' + Math.floor(10000000 + Math.random() * 90000000).toString();
+                                const newUserObj = {
+                                  id: newUserId,
+                                  name: 'عميلة أم روح 🌸',
+                                  phone: newPhoneInput,
+                                  address: '',
+                                  currency: 'YER_NEW' as Currency,
+                                  balance: 0,
+                                  giftBalance: 0,
+                                  favorites: [],
+                                  joinDate: new Date().toISOString().substring(0, 7),
+                                  isRegistered: true,
+                                  deviceId: currentDeviceId
+                                };
+
+                                const savedUser = Database.saveUser(newUserObj);
+                                setUser(savedUser);
+                                setIsDeviceBlocked(false);
+                              }
+
+                              setNewPhoneInput('');
+                              setChangePhoneError('');
+                              handleReloadAll();
+                            } catch (err) {
+                              console.error(err);
+                              setChangePhoneError('حدث خطأ أثناء الاتصال بالخادم. يرجى المحاولة لاحقاً.');
+                            } finally {
+                              setIsSyncing(false);
+                            }
                           }}
-                          className="bg-gray-900 dark:bg-gray-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl hover:bg-gray-800 transition"
+                          disabled={isSyncing}
+                          className="bg-gray-900 dark:bg-gray-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl hover:bg-gray-800 transition disabled:opacity-50"
                         >
                           تحديث رقمي
                         </button>
