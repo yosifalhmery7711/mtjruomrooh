@@ -1,5 +1,20 @@
-# متجر أم روح - بوابة المزامنة والنشر
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-تم تفريغ المستودع بنجاح لتجنب أي تعارضات مع الملفات السابقة ولتسهيل الرفع النظيف كوداً وملفاً 100%.
+# Run and deploy your AI Studio app
 
-تاريخ وساعة التطهير: ١١‏/٧‏/٢٠٢٦، ٨:٢٥:١٤ م
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/164e4c1f-a796-48e6-9923-73db8c2a7b92
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
