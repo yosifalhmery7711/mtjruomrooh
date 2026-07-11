@@ -1,0 +1,41 @@
+=============================================================================
+🌸 ملف متغيرات البيئة الصحيح لمتجر أم روح (جاهز للنسخ المباشر إلى Vercel) 🌸
+=============================================================================
+
+الخلل الرئيسي الذي جعل التطبيق يظهر فارغاً في رابطكِ الجديد على فيرسل (tahdethmtjr.vercel.app)
+هو أن معرّف قاعدة البيانات (VITE_FIREBASE_DATABASE_ID) المضاف في فيرسل كان يشير إلى قاعدة بيانات قديمة أو خاطئة.
+
+الآن، تم تصحيح معرّف قاعدة البيانات ليرتبط بقاعدة البيانات النشطة والممتلئة ببياناتكِ السابقة بالكامل وهي:
+databaseId: "ai-studio-remixremixumrouh-788e1ecc-2d9c-4f86-947b-88e08702aa1f"
+
+-----------------------------------------------------------------------------
+📋 انسخي الأسطر التالية بالكامل وأضيفيها في لوحة تحكم Vercel (قسم Environment Variables):
+-----------------------------------------------------------------------------
+
+GEMINI_API_KEY="AIzaSyD87LfHQ8Vsso3qT6i4M1Y2durdpeuU1Ow"
+
+GROQ_API_KEY="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"
+
+APP_URL="https://tahdethmtjr.vercel.app"
+
+VITE_FIREBASE_PROJECT_ID="leafy-standard-n8gvj"
+
+VITE_FIREBASE_APP_ID="1:24741312317:web:5d3c59dcf3de9bb4aab754"
+
+VITE_FIREBASE_API_KEY="AIzaSyCce8aoROlJ05qVNJS4WmvH7VNm0WN9nMA"
+
+VITE_FIREBASE_AUTH_DOMAIN="leafy-standard-n8gvj.firebaseapp.com"
+
+VITE_FIREBASE_DATABASE_ID="ai-studio-remixremixumrouh-788e1ecc-2d9c-4f86-947b-88e08702aa1f"
+
+VITE_FIREBASE_STORAGE_BUCKET="leafy-standard-n8gvj.firebasestorage.app"
+
+VITE_FIREBASE_MESSAGING_SENDER_ID="24741312317"
+
+-----------------------------------------------------------------------------
+💡 إرشادات هامة بعد إضافة المتغيرات في Vercel:
+1. اذهبي إلى لوحة تحكم مشروعكِ في Vercel.
+2. ادخلي إلى قسم Settings ثم Environment Variables.
+3. قومي بتعديل أو حذف المتغيرات القديمة وإضافة المتغيرات المذكورة أعلاه بدقة.
+4. بعد الحفظ، قومي بعمل إعادة بناء ونشر جديدة (Redeploy) للمشروع في Vercel لتطبيق الإعدادات الجديدة وسيظهر المتجر ممتلئاً بكامل المنتجات والأقسام والبيانات السابقة فوراً!
+-----------------------------------------------------------------------------
