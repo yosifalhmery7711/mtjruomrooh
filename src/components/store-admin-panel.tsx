@@ -1922,14 +1922,18 @@ export default function AdminPanel({
   const [rechargeApprovalId, setRechargeApprovalId] = useState('');
   const [rechargeApprovedAmount, setRechargeApprovedAmount] = useState<number>(0);
 
-  const handleApproveRechargeSubmit = (e: React.FormEvent) => {
+  const handleApproveRechargeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rechargeApprovalId || rechargeApprovedAmount <= 0) return;
 
-    Database.approveRechargeRequest(rechargeApprovalId, rechargeApprovedAmount);
+    const success = await Database.approveRechargeRequest(rechargeApprovalId, rechargeApprovedAmount);
     setRechargeApprovalId('');
     setRechargeApprovedAmount(0);
-    showToast('تمت الموافقة وتغذية رصيد حساب العميلة بنجاح! 💰');
+    if (success) {
+      showToast('تمت الموافقة وتغذية رصيد حساب العميلة بنجاح! 💰');
+    } else {
+      showToast('⚠️ تعذر إتمام عملية الموافقة على طلب الشحن!');
+    }
     reloadData();
   };
 
@@ -4151,9 +4155,45 @@ export default function AdminPanel({
                           <span className="text-sm font-black text-amber-800">{order.totalAmount} {getCurrencyCode(order.currency)}</span>
                           
                           {/* Payment details */}
-                          <p className="text-[10px] text-gray-400">
-                            طريقة السداد: {order.paymentMethod === 'gift_wallet' ? 'خصم من هدايا أم روح 🎁' : `حساب الكريمي (سند: ${order.senderAccount})`}
-                          </p>
+                          <div className="space-y-1 mt-1 text-right">
+                            <span className="text-[10px] text-gray-400 block">طريقة السداد وتفاصيل الدفع:</span>
+                            <div className="flex flex-wrap gap-1.5 items-center justify-start md:justify-end">
+                              {order.paymentMethod === 'gift_wallet' && (
+                                <span className="bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                  🎁 خصم من هدايا أم روح
+                                </span>
+                              )}
+                              {order.paymentMethod === 'recharge_wallet' && (
+                                <span className="bg-blue-100 text-blue-800 dark:bg-blue-500/10 dark:text-blue-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                  💳 سداد من الرصيد المشحون (المحفظة)
+                                </span>
+                              )}
+                              {order.paymentMethod === 'al_kuraimi' && (
+                                <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                  🏦 حوالة بنك الكريمي
+                                </span>
+                              )}
+                              {order.paymentMethod === 'najm' && (
+                                <span className="bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                  💸 شبكة النجم للتحويلات
+                                </span>
+                              )}
+                              
+                              {order.checkoutVia === 'whatsapp' && (
+                                <span className="bg-emerald-600 text-white font-extrabold px-2.5 py-1 rounded-lg text-[9.5px] shadow-xs flex items-center gap-1">
+                                  <span>📲</span>
+                                  <span>مكتمل عبر واتساب</span>
+                                </span>
+                              )}
+                            </div>
+                            
+                            {(order.paymentMethod === 'al_kuraimi' || order.paymentMethod === 'najm') && (
+                              <p className="text-[10.5px] font-bold text-gray-700 dark:text-gray-300 mt-1">
+                                اسم المرسل: <span className="text-amber-800 dark:text-amber-300">{order.senderName}</span>
+                                {order.senderAccount && <> | الحساب/المرجع: <span className="text-amber-800 dark:text-amber-300">{order.senderAccount}</span></>}
+                              </p>
+                            )}
+                          </div>
                         </div>
 
                         {/* Display receipt if exists */}
@@ -5426,9 +5466,9 @@ DATABASE_URL="postgresql://postgres:%3FG7WW5dMUa%2Bcxyg@db.kyvfjiwihwmorddsrbvd.
                                     </td>
                                     <td className="p-2.5">
                                       {log.voterType === 'green' ? (
-                                        <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300 px-2 py-0.5 rounded-full font-extrabold text-[9px]">👍 تأييد</span>
+                                        <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300 px-2.5 py-0.5 rounded-full font-extrabold text-[9px]">🟢 عميل مسجل سابقاً</span>
                                       ) : (
-                                        <span className="bg-rose-100 text-rose-800 dark:bg-rose-500/10 dark:text-rose-300 px-2 py-0.5 rounded-full font-extrabold text-[9px]">👎 اعتراض</span>
+                                        <span className="bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300 px-2.5 py-0.5 rounded-full font-extrabold text-[9px]">🆕 عميل جديد (سجل للتصويت)</span>
                                       )}
                                     </td>
                                     <td className="p-2.5 font-mono text-gray-400 text-[9px]" dir="ltr">
