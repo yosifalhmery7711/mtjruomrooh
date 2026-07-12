@@ -68,7 +68,7 @@ CREATE TABLE categories (
 CREATE TABLE users (
   id VARCHAR(255) PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
-  phone VARCHAR(255) NOT NULL UNIQUE,
+  phone VARCHAR(255) NOT NULL,
   address TEXT DEFAULT '',
   currency VARCHAR(50) DEFAULT 'YER_NEW',
   balance NUMERIC DEFAULT 0,
@@ -174,6 +174,7 @@ CREATE TABLE recharges (
   "senderName" VARCHAR(255),
   "senderAccount" VARCHAR(255),
   amount NUMERIC NOT NULL,
+  "currency" VARCHAR(50) DEFAULT 'YER_NEW',
   "receiptImage" TEXT, -- رابط صورة سند الشحن المرفوع
   "createdAt" VARCHAR(100) NOT NULL,
   status VARCHAR(50) DEFAULT 'pending',

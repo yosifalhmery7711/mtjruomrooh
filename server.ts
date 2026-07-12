@@ -333,6 +333,16 @@ app.get('/api/supabase/status', async (req, res) => {
           await client.connect();
           pgConnected = true;
 
+          // Database Auto-Patch: Remove UNIQUE constraint from users.phone and add "currency" to recharges if missing
+          try {
+            console.log('[Supabase DB Status] Running schema auto-patch...');
+            await client.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;');
+            await client.query('ALTER TABLE recharges ADD COLUMN IF NOT EXISTS "currency" VARCHAR(50) DEFAULT \'YER_NEW\';');
+            console.log('[Supabase DB Status] Schema auto-patched successfully!');
+          } catch (patchErr: any) {
+            console.warn('[Supabase DB Status] Non-blocking schema auto-patch error:', patchErr.message || patchErr);
+          }
+
           // Fetch Active Connections
           try {
             const connRes = await client.query("SELECT count(*) FROM pg_stat_activity;");
@@ -542,7 +552,44 @@ app.post('/api/supabase/setup-schema', async (req, res) => {
 });
 
 // Mount Vite middleware for development or serve built SPA for production
+async function runStartupSchemaPatch() {
+  const connectionString = cleanEnv(process.env.DATABASE_URL || process.env.VITE_SUPABASE_DB_URL);
+  if (!connectionString) {
+    console.log('[Startup Patch] No database connection string found. Skipping startup patch.');
+    return;
+  }
+  try {
+    const pgModule = pg as any;
+    const ClientConstructor = pgModule?.Client || pgModule?.default?.Client;
+    if (!ClientConstructor) {
+      console.warn('[Startup Patch] pg module Client constructor not found.');
+      return;
+    }
+    const client = new ClientConstructor({
+      connectionString,
+      connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false }
+    });
+    await client.connect();
+    console.log('[Startup Patch] Connected to PostgreSQL. Checking/applying schema patch...');
+    
+    // Patch users.phone UNIQUE constraint
+    await client.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;');
+    
+    // Patch recharges.currency column
+    await client.query('ALTER TABLE recharges ADD COLUMN IF NOT EXISTS "currency" VARCHAR(50) DEFAULT \'YER_NEW\';');
+    
+    console.log('[Startup Patch] Schema auto-patch checks completed successfully!');
+    await client.end();
+  } catch (err: any) {
+    console.error('[Startup Patch] Auto-patch error:', err.message || err);
+  }
+}
+
 async function startServer() {
+  // Run auto-patch on startup
+  await runStartupSchemaPatch().catch(e => console.error('[Startup Patch] Unhandled error:', e));
+
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
     const viteModuleName = 'vite';
     const { createServer: createViteServer } = await import(viteModuleName);
