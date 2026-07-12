@@ -2378,15 +2378,27 @@ export class Database {
     } else {
       try {
         const reqRef = doc(db, COLLECTIONS.RECHARGES, id);
-        const reqSnap = await getDoc(reqRef);
-        if (!reqSnap.exists() || reqSnap.data()?.status !== 'pending') {
-          console.warn("Recharge request already approved or not pending in Firestore.");
-          return false;
+        const reqSnap = await getDoc(reqRef).catch(err => {
+          console.warn("Firestore getDoc error, assuming local fallback approval:", err);
+          return null;
+        });
+
+        if (reqSnap && reqSnap.exists()) {
+          if (reqSnap.data()?.status !== 'pending') {
+            console.warn("Recharge request already approved or not pending in Firestore.");
+            return false;
+          }
+          await updateDoc(reqRef, { status: 'approved', amount: approvedAmount });
+        } else {
+          console.warn("Recharge request doc does not exist in Firestore. Approving locally & trying to write approved doc.");
+          await setDoc(reqRef, { ...req, status: 'approved', amount: approvedAmount }).catch(err => {
+            console.error("Firestore setDoc fallback error:", err);
+          });
         }
-        await updateDoc(reqRef, { status: 'approved', amount: approvedAmount });
       } catch (e) {
         console.error("Firestore recharge approve error:", e);
-        return false;
+        // Do not block local approval on general Firestore errors if request exists locally
+        console.warn("Proceeding with local-only approval fallback to prevent blocking admin.");
       }
     }
 
