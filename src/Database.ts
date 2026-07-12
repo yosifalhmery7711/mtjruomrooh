@@ -1664,23 +1664,37 @@ export class Database {
     try {
       const active = this.getUser();
       const allUsers = this.getAllUsers();
-      const user = allUsers.find(u => u.id === userId) || (userId === active.id ? active : null);
-      if (user) {
-        const compositeDeviceId = user.deviceId ? (user.ip ? `${user.deviceId}|IP:${user.ip}` : user.deviceId) : '';
-        await supabase!.from('users').upsert({
-          id: user.id,
-          name: user.name,
-          phone: user.phone,
-          address: user.address,
-          currency: user.currency,
-          balance: user.balance,
-          giftBalance: user.giftBalance ?? 0,
-          favorites: user.favorites || [],
-          joinDate: user.joinDate || '',
-          isRegistered: !!user.isRegistered,
-          deviceId: compositeDeviceId
-        });
+      let user = allUsers.find(u => u.id === userId) || (userId === active.id ? active : null);
+      
+      if (!user) {
+        user = {
+          id: userId,
+          name: 'عميلة أم روح ' + userId.slice(-4),
+          phone: '77' + Math.floor(10000000 + Math.random() * 90000000),
+          address: 'اليمن',
+          currency: 'YER_NEW',
+          balance: 0,
+          giftBalance: 0,
+          favorites: [],
+          joinDate: new Date().toLocaleDateString('ar-YE'),
+          isRegistered: false
+        };
       }
+
+      const compositeDeviceId = user.deviceId ? (user.ip ? `${user.deviceId}|IP:${user.ip}` : user.deviceId) : '';
+      await supabase!.from('users').upsert({
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        address: user.address,
+        currency: user.currency,
+        balance: user.balance,
+        giftBalance: user.giftBalance ?? 0,
+        favorites: user.favorites || [],
+        joinDate: user.joinDate || '',
+        isRegistered: !!user.isRegistered,
+        deviceId: compositeDeviceId
+      });
     } catch (e) {
       console.error("Error ensuring user exists in Supabase:", e);
     }
@@ -2357,7 +2371,24 @@ export class Database {
     if (isSupabaseConfigured()) {
       this.ensureUserInSupabase(newReq.userId).then(() => {
         supabase!.from('recharges').insert(newReq).then(({ error }) => {
-          if (error) console.error("Supabase recharge submit error:", error);
+          if (error) {
+            // Resilient fallback: If the insert fails because of missing 'currency' column, retry without it quietly
+            const errorMsg = error.message ? error.message.toLowerCase() : "";
+            if (errorMsg.includes("currency") || errorMsg.includes("column") || errorMsg.includes("attribute")) {
+              console.warn("Supabase recharge submit failed on 'currency' column. Attempting fallback...");
+              const fallbackReq = { ...newReq };
+              delete (fallbackReq as any).currency;
+              supabase!.from('recharges').insert(fallbackReq).then(({ error: retryError }) => {
+                if (retryError) {
+                  console.error("Supabase recharge submit error (both attempts failed):", retryError);
+                } else {
+                  console.log("Supabase recharge submit fallback succeeded without 'currency' column.");
+                }
+              });
+            } else {
+              console.error("Supabase recharge submit error:", error);
+            }
+          }
         });
       });
     } else {
@@ -3155,6 +3186,84 @@ export class Database {
         deleteDoc(doc(db, COLLECTIONS.RECHARGES, req.id)).catch(() => {});
       }
     }
+  }
+
+  static deleteGift(id: string): void {
+    this.initialize();
+    const list = this.getGifts();
+    const filtered = list.filter(g => g.id !== id);
+    saveToStorage(this.KEYS.GIFTS, filtered);
+    if (isSupabaseConfigured()) {
+      supabase!.from('gifts').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase gift delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.GIFTS, id)).catch(e => console.error("Firestore gift delete error:", e));
+    }
+  }
+
+  static revertGiftAndDeduct(id: string): void {
+    this.initialize();
+    const list = this.getGifts();
+    const gift = list.find(g => g.id === id);
+    if (!gift) return;
+
+    // Deduct gift balance from user
+    const allUsers = this.getAllUsers();
+    const target = allUsers.find(u => u.id === gift.userId);
+    if (target) {
+      target.giftBalance = Math.max(0, (target.giftBalance || 0) - gift.amount);
+      saveToStorage('amrwh_all_users_list', allUsers);
+
+      if (isSupabaseConfigured()) {
+        supabase!.from('users').update({ giftBalance: target.giftBalance }).eq('id', gift.userId).then(undefined, e => console.error(e));
+      } else {
+        updateDoc(doc(db, COLLECTIONS.USERS, gift.userId), { giftBalance: target.giftBalance }).catch(e => console.error(e));
+      }
+
+      // Update active user if same
+      const activeUser = this.getUser();
+      if (activeUser.id === gift.userId) {
+        activeUser.giftBalance = target.giftBalance;
+        saveToStorage(this.KEYS.USER, activeUser);
+      }
+    }
+
+    // Now delete the gift record
+    this.deleteGift(id);
+  }
+
+  static revertRechargeAndDeduct(id: string): void {
+    this.initialize();
+    const list = this.getRechargeRequests();
+    const req = list.find(r => r.id === id);
+    if (!req) return;
+
+    // If it was approved, deduct from the user's balance
+    if (req.status === 'approved') {
+      const allUsers = this.getAllUsers();
+      const target = allUsers.find(u => u.id === req.userId);
+      if (target) {
+        target.balance = Math.max(0, (target.balance || 0) - req.amount);
+        saveToStorage('amrwh_all_users_list', allUsers);
+
+        if (isSupabaseConfigured()) {
+          supabase!.from('users').update({ balance: target.balance }).eq('id', req.userId).then(undefined, e => console.error(e));
+        } else {
+          updateDoc(doc(db, COLLECTIONS.USERS, req.userId), { balance: target.balance }).catch(e => console.error(e));
+        }
+
+        // Update active user if same
+        const activeUser = this.getUser();
+        if (activeUser.id === req.userId) {
+          activeUser.balance = target.balance;
+          saveToStorage(this.KEYS.USER, activeUser);
+        }
+      }
+    }
+
+    // Now delete the recharge request
+    this.deleteRechargeRequest(id);
   }
 
   static getVoteLogs(): VoteLog[] {

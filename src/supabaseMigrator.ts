@@ -261,6 +261,7 @@ export async function runBrowserMigration(
       senderName: data.senderName || '',
       senderAccount: data.senderAccount || '',
       amount: data.amount ?? 0,
+      currency: data.currency || 'YER_NEW',
       receiptImage: data.receiptImage || '',
       createdAt: data.createdAt || '',
       status: data.status || 'pending'
