@@ -91,7 +91,7 @@ interface AdminPanelProps {
   adminRole: 'full' | 'worker';
 }
 
-type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications' | 'archives';
+type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications' | 'archives' | 'reversions';
 
 export default function AdminPanel({
   onClose,
@@ -121,6 +121,9 @@ export default function AdminPanel({
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
   const [adminTickerTexts, setAdminTickerTexts] = useState<string[]>(() => Database.getTickerTexts());
   const [newTickerInput, setNewTickerInput] = useState('');
+  const [giftsList, setGiftsList] = useState<GiftType[]>(() => Database.getGifts());
+  const [reversionSubTab, setReversionSubTab] = useState<'users' | 'recharges' | 'gifts'>('users');
+  const [reversionSearchQuery, setReversionSearchQuery] = useState('');
 
   // Supabase migration states
   const [isMigratingSupabase, setIsMigratingSupabase] = useState(false);
@@ -429,6 +432,7 @@ export default function AdminPanel({
     setArchivedEvents(Database.getArchivedEvents());
     setVoteLogs(Database.getVoteLogs());
     setBlockedDevices(Database.getBlockedDevices());
+    setGiftsList(Database.getGifts());
   };
 
   const syncRealtimeData = async () => {
@@ -2120,6 +2124,7 @@ export default function AdminPanel({
             { id: 'offers', label: 'العروض والسلايدر', icon: Percent, badge: undefined },
             { id: 'users', label: 'قاعدة بيانات العملاء', icon: DbIcon, badge: undefined },
             { id: 'gifts', label: 'هدايا أم روح', icon: Gift, badge: undefined },
+            { id: 'reversions', label: 'مراجعة وتراجع الأخطاء 🔄', icon: RefreshCw, badge: undefined },
             { id: 'new-orders', label: 'الطلبات الجديدة', icon: FileText, badge: pendingOrders.length },
             { id: 'sent-orders', label: 'الطلبات المرسلة', icon: Truck, badge: undefined },
             { id: 'recharges', label: 'شحن رصيدي', icon: DollarSign, badge: pendingRecharges.length },
@@ -5751,6 +5756,347 @@ DATABASE_URL="postgresql://postgres:%3FG7WW5dMUa%2Bcxyg@db.kyvfjiwihwmorddsrbvd.
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 13.5. REVERSIONS AND ERROR ROLLBACK SECTION */}
+          {activeTab === 'reversions' && (
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-amber-100/40 dark:border-gray-800 shadow-sm space-y-6 text-right animate-fade-in">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-amber-50 dark:border-gray-800 pb-4">
+                <div>
+                  <h3 className="text-sm font-black text-amber-950 dark:text-amber-300 flex items-center gap-2">
+                    <span className="inline-block p-1 bg-amber-500/10 rounded-lg text-amber-600">🔄</span>
+                    قسم مراجعة وتراجع الأخطاء والتحويلات
+                  </h3>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    أداة رقابية لمراجعة هدايا وشحنات العملاء، والتراجع الفوري عن التحويلات المعتمدة بالخطأ أو تصفير أرصدة الحسابات لمنع التجاوزات وسحب المبالغ.
+                  </p>
+                </div>
+              </div>
+
+              {/* Sub tabs navigation */}
+              <div className="flex bg-gray-50 dark:bg-gray-800/50 p-1.5 rounded-2xl border border-gray-100/50 dark:border-gray-800/80 gap-1.5 overflow-x-auto">
+                {[
+                  { id: 'users', label: 'أرصدة ومحافظ العملاء 💳' },
+                  { id: 'recharges', label: 'عمليات الشحن المعتمدة 💰' },
+                  { id: 'gifts', label: 'سجل هدايا الإدارة المباشرة 🎁' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setReversionSubTab(tab.id as any);
+                      setReversionSearchQuery('');
+                    }}
+                    className={`px-4 py-2 text-xs font-black rounded-xl transition whitespace-nowrap cursor-pointer ${
+                      reversionSubTab === tab.id
+                        ? 'bg-amber-500 text-white shadow-md shadow-amber-500/10'
+                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder={
+                    reversionSubTab === 'users'
+                      ? 'البحث عن اسم العميل أو رقم الهاتف...'
+                      : reversionSubTab === 'recharges'
+                      ? 'البحث باسم المحول، حساب التحويل، أو اسم العميل...'
+                      : 'البحث عن اسم مستلم الهدية أو رقم هاتفها...'
+                  }
+                  value={reversionSearchQuery}
+                  onChange={e => setReversionSearchQuery(e.target.value)}
+                  className="w-full pl-4 pr-10 py-3 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-amber-500/20 text-gray-800 dark:text-gray-100"
+                />
+              </div>
+
+              {/* SECTION 1: USERS WALLETS */}
+              {reversionSubTab === 'users' && (
+                <div className="space-y-4">
+                  {/* Info Panel */}
+                  <div className="bg-amber-500/5 border border-amber-500/10 p-3.5 rounded-2xl text-amber-800 dark:text-amber-400 text-[10px] font-bold leading-relaxed">
+                    💡 يظهر هنا جميع العملاء الذين يمتلكون أرصدة مالية أو هدايا نشطة في محافظهم. يمكنكِ تصفير الرصيد المالي أو الهدية نهائياً لأي عميلة، وسيتم تحديث المحفظة فوراً وسحب الرصيد من جهازها أيضاً بالتزامن.
+                  </div>
+
+                  {/* Filter and render users list */}
+                  {(() => {
+                    const filteredUsers = users.filter(u => {
+                      // Only show users with some balance or giftBalance
+                      const hasFunds = (u.balance && u.balance > 0) || (u.giftBalance && u.giftBalance > 0);
+                      if (!hasFunds) return false;
+                      if (!reversionSearchQuery.trim()) return true;
+                      const term = reversionSearchQuery.toLowerCase().trim();
+                      return u.name.toLowerCase().includes(term) || u.phone.includes(term);
+                    });
+
+                    if (filteredUsers.length === 0) {
+                      return (
+                        <div className="text-center py-12 text-gray-400 text-xs font-bold">
+                          لا توجد محافظ عملاء نشطة تطابق معايير البحث الحالية.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredUsers.map(user => {
+                          const userBalCur = user.balanceCurrency || 'YER_NEW';
+                          const userGiftCur = user.giftBalanceCurrency || 'YER_NEW';
+                          const currencyLabels: Record<string, string> = {
+                            YER_NEW: 'ريال يمني جديد',
+                            YER_OLD: 'ريال يمني قديم',
+                            SAR: 'ريال سعودي'
+                          };
+
+                          return (
+                            <div key={user.id} className="bg-gray-50/50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 p-4 rounded-3xl space-y-4">
+                              {/* Header User info */}
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-0.5">
+                                  <h4 className="text-xs font-black text-gray-900 dark:text-white">{user.name}</h4>
+                                  <p className="text-[10px] text-gray-400 font-mono" dir="ltr">{user.phone}</p>
+                                </div>
+                                <span className="bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 text-[8px] font-extrabold px-2.5 py-1 rounded-full">
+                                  عميلة مسجلة 👤
+                                </span>
+                              </div>
+
+                              {/* Balance Slots */}
+                              <div className="grid grid-cols-2 gap-3">
+                                {/* Wallet Balance */}
+                                <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-3 rounded-2xl text-center space-y-1">
+                                  <span className="text-[9px] text-gray-400 font-bold block">الرصيد المالي</span>
+                                  <div className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                                    {(user.balance || 0).toLocaleString()} <span className="text-[9px] font-medium block mt-0.5 text-gray-500">{currencyLabels[userBalCur]}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      askConfirmation(
+                                        '⚠️ سحب وتصفير الرصيد المالي',
+                                        `هل أنتِ متأكدة تماماً من تصفير الرصيد المالي الحالي للعميلة "${user.name}" نهائياً؟ سيتم خصم ${(user.balance || 0).toLocaleString()} وسيعود رصيدها إلى 0 فوراً!`,
+                                        () => {
+                                          Database.updateUserBalances(user.id, 0, user.giftBalance || 0);
+                                          showToast(`تم تصفير الرصيد المالي للعميلة ${user.name} بنجاح! 💸`);
+                                          reloadData();
+                                        }
+                                      );
+                                    }}
+                                    disabled={!user.balance || user.balance <= 0}
+                                    className="w-full mt-2 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-black text-[9px] rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    تصفير الرصيد
+                                  </button>
+                                </div>
+
+                                {/* Gift Balance */}
+                                <div className="bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 p-3 rounded-2xl text-center space-y-1">
+                                  <span className="text-[9px] text-gray-400 font-bold block">رصيد الهدايا</span>
+                                  <div className="text-xs font-black text-amber-700 dark:text-amber-400">
+                                    {(user.giftBalance || 0).toLocaleString()} <span className="text-[9px] font-medium block mt-0.5 text-gray-500">{currencyLabels[userGiftCur]}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      askConfirmation(
+                                        '🎁 سحب وتصفير رصيد الهدية',
+                                        `هل أنتِ متأكدة تماماً من تصفير رصيد الهدايا الحالي للعميلة "${user.name}" نهائياً؟ سيتم سحب ${(user.giftBalance || 0).toLocaleString()} وسيعود رصيد الهدايا إلى 0 فوراً!`,
+                                        () => {
+                                          Database.updateUserBalances(user.id, user.balance || 0, 0);
+                                          showToast(`تم سحب وتصفير رصيد الهدايا للعميلة ${user.name} بنجاح! 🎁`);
+                                          reloadData();
+                                        }
+                                      );
+                                    }}
+                                    disabled={!user.giftBalance || user.giftBalance <= 0}
+                                    className="w-full mt-2 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-black text-[9px] rounded-xl transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    تصفير الهدية
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* SECTION 2: APPROVED RECHARGES */}
+              {reversionSubTab === 'recharges' && (
+                <div className="space-y-4">
+                  <div className="bg-amber-500/5 border border-amber-500/10 p-3.5 rounded-2xl text-amber-800 dark:text-amber-400 text-[10px] font-bold leading-relaxed">
+                    🛡️ يظهر هنا سجل الحوالات المعتمدة (التي تم قبولها بنجاح وشحن رصيد العملاء بموجبها). عند التراجع عن أي عملية، سيتم **خصم مبلغ الشحن مباشرة** من محفظة العميلة وحذف طلب الشحن نهائياً لمنع أي ثغرة.
+                  </div>
+
+                  {(() => {
+                    const approvedRecharges = recharges.filter(r => {
+                      if (r.status !== 'approved') return false;
+                      if (!reversionSearchQuery.trim()) return true;
+                      const term = reversionSearchQuery.toLowerCase().trim();
+                      return (
+                        r.userName.toLowerCase().includes(term) ||
+                        r.userPhone.includes(term) ||
+                        (r.senderName && r.senderName.toLowerCase().includes(term)) ||
+                        (r.senderAccount && r.senderAccount.toLowerCase().includes(term))
+                      );
+                    });
+
+                    if (approvedRecharges.length === 0) {
+                      return (
+                        <div className="text-center py-12 text-gray-400 text-xs font-bold">
+                          لا توجد عمليات شحن مقبولة تطابق البحث حالياً.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl">
+                        <table className="w-full text-right text-xs">
+                          <thead>
+                            <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-black text-[10px] border-b border-gray-100 dark:border-gray-800">
+                              <th className="p-3">صاحبة الحساب</th>
+                              <th className="p-3">حساب ومحضر التحويل</th>
+                              <th className="p-3 text-center">المبلغ المعتمد</th>
+                              <th className="p-3 text-center">التاريخ والوقت</th>
+                              <th className="p-3 text-center">إجراء تراجع رقابي</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {approvedRecharges.map(req => {
+                              const curNames: Record<string, string> = { YER_NEW: 'يمني جديد', YER_OLD: 'يمني قديم', SAR: 'ريال سعودي' };
+                              const curLabel = curNames[req.currency || 'YER_NEW'] || 'يمني جديد';
+
+                              return (
+                                <tr key={req.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition">
+                                  <td className="p-3">
+                                    <div className="font-extrabold text-gray-900 dark:text-white">{req.userName}</div>
+                                    <div className="text-[10px] text-gray-400 font-mono" dir="ltr">{req.userPhone}</div>
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="text-gray-600 dark:text-gray-300 font-semibold">{req.senderAccount || 'غير محدد'}</div>
+                                    <div className="text-[10px] text-gray-400">المرسل: {req.senderName || 'غير محدد'}</div>
+                                  </td>
+                                  <td className="p-3 text-center font-black text-emerald-600 dark:text-emerald-400">
+                                    {req.amount.toLocaleString()} {curLabel}
+                                  </td>
+                                  <td className="p-3 text-center text-gray-400 font-medium text-[10px]">
+                                    {formatArabicDate(req.createdAt)}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      onClick={() => {
+                                        askConfirmation(
+                                          '⚠️ التراجع عن عملية الشحن المقبولة',
+                                          `هل أنتِ متأكدة تماماً من الرغبة في التراجع وإلغاء عملية الشحن هذه التابعة لـ "${req.userName}"؟ سيتم فوراً خصم مبلغ ${req.amount.toLocaleString()} ${curLabel} من محفظتها، وحذف هذا الطلب نهائياً.`,
+                                          () => {
+                                            Database.revertRechargeAndDeduct(req.id);
+                                            showToast('تم إلغاء عملية الشحن المعتمدة بنجاح وسحب القيمة المالية من رصيد العميلة المستهدفة. ✅');
+                                            reloadData();
+                                          }
+                                        );
+                                      }}
+                                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-xl transition cursor-pointer"
+                                    >
+                                      تراجع وخصم المبلغ
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* SECTION 3: DIRECT ADMIN GIFTS */}
+              {reversionSubTab === 'gifts' && (
+                <div className="space-y-4">
+                  <div className="bg-amber-500/5 border border-amber-500/10 p-3.5 rounded-2xl text-amber-800 dark:text-amber-400 text-[10px] font-bold leading-relaxed">
+                    🎁 يظهر هنا سجل الهدايا والجوائز المالية المباشرة التي تم إرسالها من قبل الإدارة إلى العملاء. يمكنكِ التراجع عن أي هدية أرسلت بالخطأ وسحب قيمتها فوراً من محفظة العميلة وحذف السجل المانح نهائياً.
+                  </div>
+
+                  {(() => {
+                    const filteredGifts = giftsList.filter(g => {
+                      if (!reversionSearchQuery.trim()) return true;
+                      const term = reversionSearchQuery.toLowerCase().trim();
+                      return (
+                        g.userName.toLowerCase().includes(term) ||
+                        g.userPhone.includes(term)
+                      );
+                    });
+
+                    if (filteredGifts.length === 0) {
+                      return (
+                        <div className="text-center py-12 text-gray-400 text-xs font-bold">
+                          لا توجد هدايا مالية مرسلة تطابق البحث حالياً.
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl">
+                        <table className="w-full text-right text-xs">
+                          <thead>
+                            <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-black text-[10px] border-b border-gray-100 dark:border-gray-800">
+                              <th className="p-3">صاحبة الحساب المستلمة</th>
+                              <th className="p-3 text-center">المبلغ</th>
+                              <th className="p-3 text-center">التاريخ والوقت</th>
+                              <th className="p-3 text-center">إجراء تراجع رقابي</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                            {filteredGifts.map(gift => {
+                              return (
+                                <tr key={gift.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition">
+                                  <td className="p-3">
+                                    <div className="font-extrabold text-gray-900 dark:text-white">{gift.userName}</div>
+                                    <div className="text-[10px] text-gray-400 font-mono" dir="ltr">{gift.userPhone}</div>
+                                  </td>
+                                  <td className="p-3 text-center font-black text-amber-700 dark:text-amber-400">
+                                    {gift.amount.toLocaleString()} ريال
+                                  </td>
+                                  <td className="p-3 text-center text-gray-400 font-medium text-[10px]">
+                                    {formatArabicDate(gift.createdAt)}
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      onClick={() => {
+                                        askConfirmation(
+                                          '⚠️ التراجع عن الهدية المالية المرسلة',
+                                          `هل أنتِ متأكدة تماماً من إلغاء الهدية المالية هذه التابعة لـ "${gift.userName}"؟ سيتم سحب قيمة الهدية (${gift.amount.toLocaleString()} ريال) من رصيد هداياها مباشرة وحذف السجل نهائياً.`,
+                                          () => {
+                                            Database.revertGiftAndDeduct(gift.id);
+                                            showToast('تم إلغاء وسحب الهدية المالية من رصيد العميلة بنجاح! 🎁❌');
+                                            reloadData();
+                                          }
+                                        );
+                                      }}
+                                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-[10px] font-black rounded-xl transition cursor-pointer"
+                                    >
+                                      إلغاء الهدية وسحبها
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
 
