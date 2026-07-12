@@ -32,7 +32,8 @@ import {
   Copy,
   Award,
   Bell,
-  RefreshCw
+  RefreshCw,
+  Archive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -90,7 +91,7 @@ interface AdminPanelProps {
   adminRole: 'full' | 'worker';
 }
 
-type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications';
+type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications' | 'archives';
 
 export default function AdminPanel({
   onClose,
@@ -103,6 +104,9 @@ export default function AdminPanel({
 }: AdminPanelProps) {
   // Tabs State
   const [activeTab, setActiveTab] = useState<AdminTab>(adminRole === 'worker' ? 'categories' : 'settings');
+  const [subArchiveTab, setSubArchiveTab] = useState<'recharges' | 'orders' | 'events'>('recharges');
+  const [rechargeArchiveFilter, setRechargeArchiveFilter] = useState<'all' | 'approved' | 'rejected' | 'pending'>('all');
+  const [orderArchiveFilter, setOrderArchiveFilter] = useState<'all' | 'new' | 'completed' | 'canceled'>('all');
 
   // Unified State Loaded from localStorage Database
   const [users, setUsers] = useState<User[]>([]);
@@ -1949,6 +1953,66 @@ export default function AdminPanel({
     );
   };
 
+  const handleDeleteRecharge = (id: string) => {
+    askConfirmation(
+      'حذف طلب الشحن نهائياً 🗑️',
+      'هل أنتِ متأكدة من رغبتكِ في حذف هذا الطلب من الأرشيف نهائياً؟ لا يمكن استرجاع البيانات بعد الحذف.',
+      () => {
+        Database.deleteRechargeRequest(id);
+        showToast('تم حذف طلب الشحن بنجاح من الأرشيف.');
+        reloadData();
+      }
+    );
+  };
+
+  const handleClearAllRecharges = () => {
+    askConfirmation(
+      '⚠️ تفريغ أرشيف طلبات الشحن بالكامل ⚠️',
+      'تحذير هام: هل أنتِ متأكدة من رغبتكِ في تفريغ وحذف أرشيف طلبات الشحن بالكامل؟ سيتم مسح كافة البيانات نهائياً.',
+      () => {
+        Database.clearAllRechargeRequests();
+        showToast('تم تفريغ أرشيف طلبات الشحن بالكامل.');
+        reloadData();
+      }
+    );
+  };
+
+  const handleDeleteOrder = (id: string) => {
+    askConfirmation(
+      'حذف الطلب نهائياً 🗑️',
+      'هل أنتِ متأكدة من رغبتكِ في حذف هذا الطلب من الأرشيف نهائياً؟',
+      () => {
+        Database.deleteOrder(id);
+        showToast('تم حذف الطلب بنجاح من الأرشيف.');
+        reloadData();
+      }
+    );
+  };
+
+  const handleClearAllOrders = () => {
+    askConfirmation(
+      '⚠️ تفريغ أرشيف الطلبات بالكامل ⚠️',
+      'تحذير هام: هل أنتِ متأكدة من رغبتكِ في تفريغ وحذف أرشيف كافة الطلبات بالكامل؟',
+      () => {
+        Database.clearAllOrders();
+        showToast('تم تفريغ أرشيف الطلبات بالكامل.');
+        reloadData();
+      }
+    );
+  };
+
+  const handleClearAllContestantsAndVotes = () => {
+    askConfirmation(
+      '⚠️ تصفير المسابقات وتفريغ الأرشيف ⚠️',
+      'تحذير هام جداً: هل أنتِ متأكدة من رغبتكِ في تفريغ وحذف أرشيف كافة المتسابقين وتصفير جميع أصوات التصويت بالكامل؟ لا يمكن التراجع عن هذا الإجراء!',
+      () => {
+        Database.clearAllContestantsAndVotes();
+        showToast('تم تفريغ أرشيف المسابقات وتصفير الأصوات بنجاح.');
+        reloadData();
+      }
+    );
+  };
+
   return (
     <div className="fixed inset-0 overflow-y-auto bg-amber-50/10 dark:bg-gray-950 pb-32 pt-5 overscroll-contain touch-pan-y select-text z-[40]">
       {/* Custom Confirmation Dialog */}
@@ -2060,6 +2124,7 @@ export default function AdminPanel({
             { id: 'sent-orders', label: 'الطلبات المرسلة', icon: Truck, badge: undefined },
             { id: 'recharges', label: 'شحن رصيدي', icon: DollarSign, badge: pendingRecharges.length },
             { id: 'reports', label: 'تقارير الشحن والسداد 📊', icon: TrendingUp, badge: undefined },
+            { id: 'archives', label: 'أرشيف الإدارة والطباعة 📦', icon: Archive, badge: undefined },
             { id: 'events', label: 'مسابقات أم روح 🏆', icon: Award, badge: undefined },
             { id: 'notifications', label: 'إدارة الإشعارات 🔔', icon: Bell, badge: undefined },
             { id: 'database', label: 'إدارة السحابة وقواعد البيانات ☁️', icon: DbIcon, badge: undefined }
@@ -5686,6 +5751,437 @@ DATABASE_URL="postgresql://postgres:%3FG7WW5dMUa%2Bcxyg@db.kyvfjiwihwmorddsrbvd.
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 14. COMPREHENSIVE ARCHIVES AND PRINTING SECTION */}
+          {activeTab === 'archives' && (
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-amber-100/40 dark:border-gray-800 shadow-sm space-y-6 text-right animate-fade-in print:p-0 print:border-none print:shadow-none print:bg-white">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-amber-50 dark:border-gray-800 pb-4 print:border-b-2 print:border-black print:pb-2">
+                <div>
+                  <h3 className="text-sm font-black text-amber-950 dark:text-amber-300 flex items-center gap-2 print:text-black print:text-lg">
+                    <span className="inline-block p-1 bg-amber-500/10 rounded-lg text-amber-600 print:hidden">📦</span>
+                    أرشيف الإدارة المتكامل والطباعة الورقية
+                  </h3>
+                  <p className="text-[10px] text-gray-400 mt-1 print:text-gray-800 print:text-xs">
+                    استعراض وطباعة كافة أرشيف العمليات، شحنات المحفظة، الطلبات، والمسابقات مع إمكانية التصفية والحذف
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 self-stretch sm:self-auto print:hidden">
+                  {/* Print Active Archive Button */}
+                  <button
+                    id="print-archive-btn"
+                    onClick={() => window.print()}
+                    className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-black text-[10px] py-2 px-4 rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة الأرشيف الحالي 📄</span>
+                  </button>
+
+                  {/* Empty Selected Archive */}
+                  {subArchiveTab === 'recharges' && (
+                    <button
+                      id="clear-recharges-btn"
+                      onClick={handleClearAllRecharges}
+                      className="bg-rose-50 border border-rose-100 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400 font-extrabold text-[10px] py-2 px-4 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2Icon className="w-4 h-4" />
+                      <span>تفريغ أرشيف الشحن 🚨</span>
+                    </button>
+                  )}
+                  {subArchiveTab === 'orders' && (
+                    <button
+                      id="clear-orders-btn"
+                      onClick={handleClearAllOrders}
+                      className="bg-rose-50 border border-rose-100 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400 font-extrabold text-[10px] py-2 px-4 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2Icon className="w-4 h-4" />
+                      <span>تفريغ أرشيف الطلبات 🚨</span>
+                    </button>
+                  )}
+                  {subArchiveTab === 'events' && (
+                    <button
+                      id="clear-events-btn"
+                      onClick={handleClearAllContestantsAndVotes}
+                      className="bg-rose-50 border border-rose-100 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/20 dark:border-rose-900/40 dark:text-rose-400 font-extrabold text-[10px] py-2 px-4 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2Icon className="w-4 h-4" />
+                      <span>تفريغ وتصفير المسابقات 🏆</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sub-Archive Tab Switcher */}
+              <div className="flex border-b border-gray-100 dark:border-gray-800 gap-2 print:hidden">
+                <button
+                  id="subtab-recharges"
+                  onClick={() => setSubArchiveTab('recharges')}
+                  className={`pb-3 px-4 text-xs font-black border-b-2 transition cursor-pointer ${
+                    subArchiveTab === 'recharges'
+                      ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  💳 أرشيف طلبات الشحن ({recharges.length})
+                </button>
+                <button
+                  id="subtab-orders"
+                  onClick={() => setSubArchiveTab('orders')}
+                  className={`pb-3 px-4 text-xs font-black border-b-2 transition cursor-pointer ${
+                    subArchiveTab === 'orders'
+                      ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  🛍️ أرشيف الطلبات والمبيعات ({orders.length})
+                </button>
+                <button
+                  id="subtab-events"
+                  onClick={() => setSubArchiveTab('events')}
+                  className={`pb-3 px-4 text-xs font-black border-b-2 transition cursor-pointer ${
+                    subArchiveTab === 'events'
+                      ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  🏆 أرشيف المسابقات والتصويت ({contestants.length})
+                </button>
+              </div>
+
+              {/* SECTION A: RECHARGES ARCHIVE */}
+              {subArchiveTab === 'recharges' && (
+                <div className="space-y-4">
+                  {/* Filters bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-2xl print:hidden">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 font-bold">تصفية حالة الطلب:</span>
+                      <div className="flex bg-white dark:bg-gray-800 p-0.5 rounded-lg border">
+                        {[
+                          { id: 'all', label: 'الكل' },
+                          { id: 'pending', label: 'قيد الانتظار ⏳' },
+                          { id: 'approved', label: 'مقبول ✅' },
+                          { id: 'rejected', label: 'مرفوض ❌' }
+                        ].map(f => (
+                          <button
+                            key={f.id}
+                            onClick={() => setRechargeArchiveFilter(f.id as any)}
+                            className={`px-3 py-1 text-[10px] font-black rounded-md transition cursor-pointer ${
+                              rechargeArchiveFilter === f.id
+                                ? 'bg-amber-500 text-white'
+                                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="text-[10px] text-gray-400 font-semibold">
+                      عدد الطلبات المعروضة: {
+                        recharges.filter(r => rechargeArchiveFilter === 'all' || r.status === rechargeArchiveFilter).length
+                      } من أصل {recharges.length}
+                    </div>
+                  </div>
+
+                  {/* Print Title (Visible only when printing) */}
+                  <div className="hidden print:block text-center space-y-2 mb-6 text-black" dir="rtl">
+                    <h2 className="text-xl font-bold border-b-2 border-black pb-2">تقرير أرشيف طلبات إيداع وشحن رصيد المحفظة</h2>
+                    <p className="text-xs">المتجر: متجر أم روح الكبرى 🌸 | تاريخ الاستخراج: {new Date().toLocaleDateString('ar-YE')}</p>
+                    <p className="text-xs">حالة التصفية: {
+                      rechargeArchiveFilter === 'all' ? 'جميع الطلبات' :
+                      rechargeArchiveFilter === 'approved' ? 'الطلبات المقبولة فقط' :
+                      rechargeArchiveFilter === 'rejected' ? 'الطلبات المرفوضة فقط' : 'الطلبات المنتظرة'
+                    }</p>
+                  </div>
+
+                  {/* Table/Cards */}
+                  {recharges.filter(r => rechargeArchiveFilter === 'all' || r.status === rechargeArchiveFilter).length === 0 ? (
+                    <div className="text-center py-10 text-gray-400 text-xs font-bold">لا يوجد أي طلبات شحن رصيد تطابق معايير التصفية الحالية.</div>
+                  ) : (
+                    <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl print:border-black">
+                      <table className="w-full text-right text-xs print:text-black">
+                        <thead>
+                          <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-black text-[10px] border-b border-gray-100 dark:border-gray-800 print:bg-none print:border-b-2 print:border-black">
+                            <th className="p-3">صاحبة الحساب</th>
+                            <th className="p-3">حساب التحويل</th>
+                            <th className="p-3">الاسم المحول</th>
+                            <th className="p-3 text-center">المبلغ</th>
+                            <th className="p-3 text-center">التاريخ والوقت</th>
+                            <th className="p-3 text-center">الحالة</th>
+                            <th className="p-3 text-center print:hidden">إجراءات</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800 print:divide-y print:divide-black">
+                          {recharges
+                            .filter(r => rechargeArchiveFilter === 'all' || r.status === rechargeArchiveFilter)
+                            .map(req => (
+                              <tr key={req.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition print:hover:bg-none">
+                                <td className="p-3">
+                                  <div className="font-extrabold text-gray-900 dark:text-white print:text-black">{req.userName}</div>
+                                  <div className="text-[10px] text-gray-400 font-mono print:text-black" dir="ltr">{req.userPhone}</div>
+                                </td>
+                                <td className="p-3 text-gray-600 dark:text-gray-300 print:text-black">{req.senderAccount || 'غير محدد'}</td>
+                                <td className="p-3 text-gray-600 dark:text-gray-300 print:text-black">{req.senderName || 'غير محدد'}</td>
+                                <td className="p-3 text-center font-black text-amber-800 dark:text-amber-400 print:text-black">
+                                  {req.amount.toLocaleString()} YER
+                                </td>
+                                <td className="p-3 text-center text-gray-400 font-medium text-[10px] print:text-black">
+                                  {formatArabicDate(req.createdAt)}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`px-2.5 py-1 rounded-full text-[9px] font-black inline-block ${
+                                    req.status === 'approved'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 print:border print:border-black print:text-black print:bg-none'
+                                      : req.status === 'rejected'
+                                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 print:border print:border-black print:text-black print:bg-none'
+                                      : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 print:border print:border-black print:text-black print:bg-none'
+                                  }`}>
+                                    {req.status === 'approved' ? 'مقبول ✅' : req.status === 'rejected' ? 'مرفوض ❌' : 'قيد الانتظار ⏳'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center print:hidden">
+                                  <button
+                                    onClick={() => handleDeleteRecharge(req.id)}
+                                    className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 dark:hover:bg-rose-950/30 transition inline-flex items-center justify-center cursor-pointer"
+                                    title="حذف هذا الطلب نهائياً"
+                                  >
+                                    <Trash2Icon className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SECTION B: ORDERS ARCHIVE */}
+              {subArchiveTab === 'orders' && (
+                <div className="space-y-4">
+                  {/* Filters bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-2xl print:hidden">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 font-bold">تصفية نوع الطلبات:</span>
+                      <div className="flex bg-white dark:bg-gray-800 p-0.5 rounded-lg border">
+                        {[
+                          { id: 'all', label: 'الكل' },
+                          { id: 'new', label: 'الطلب الجديد/النشط 🆕' },
+                          { id: 'completed', label: 'الطلب المستلم/المرسل 🚚' },
+                          { id: 'canceled', label: 'الملغية ❌' }
+                        ].map(f => (
+                          <button
+                            key={f.id}
+                            onClick={() => setOrderArchiveFilter(f.id as any)}
+                            className={`px-3 py-1 text-[10px] font-black rounded-md transition cursor-pointer ${
+                              orderArchiveFilter === f.id
+                                ? 'bg-amber-500 text-white'
+                                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="text-[10px] text-gray-400 font-semibold">
+                      عدد الطلبات المعروضة: {
+                        orders.filter(o => {
+                          if (orderArchiveFilter === 'all') return true;
+                          if (orderArchiveFilter === 'new') return o.status === 'pending' || o.status === 'processing';
+                          if (orderArchiveFilter === 'completed') return o.status === 'completed' || o.status === 'sent';
+                          if (orderArchiveFilter === 'canceled') return o.status === 'canceled';
+                          return true;
+                        }).length
+                      } من أصل {orders.length}
+                    </div>
+                  </div>
+
+                  {/* Print Title (Visible only when printing) */}
+                  <div className="hidden print:block text-center space-y-2 mb-6 text-black" dir="rtl">
+                    <h2 className="text-xl font-bold border-b-2 border-black pb-2">تقرير أرشيف طلبات المبيعات والمشتريات</h2>
+                    <p className="text-xs">المتجر: متجر أم روح الكبرى 🌸 | تاريخ الاستخراج: {new Date().toLocaleDateString('ar-YE')}</p>
+                    <p className="text-xs">حالة التصفية: {
+                      orderArchiveFilter === 'all' ? 'جميع الطلبات' :
+                      orderArchiveFilter === 'new' ? 'الطلبات النشطة والجديدة فقط' :
+                      orderArchiveFilter === 'completed' ? 'الطلبات المستلمة والمنفذة فقط' : 'الطلبات الملغية'
+                    }</p>
+                  </div>
+
+                  {/* Table/Cards */}
+                  {orders.filter(o => {
+                    if (orderArchiveFilter === 'all') return true;
+                    if (orderArchiveFilter === 'new') return o.status === 'pending' || o.status === 'processing';
+                    if (orderArchiveFilter === 'completed') return o.status === 'completed' || o.status === 'sent';
+                    if (orderArchiveFilter === 'canceled') return o.status === 'canceled';
+                    return true;
+                  }).length === 0 ? (
+                    <div className="text-center py-10 text-gray-400 text-xs font-bold">لا يوجد أي طلبات شراء تطابق معايير التصفية الحالية.</div>
+                  ) : (
+                    <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl print:border-black">
+                      <table className="w-full text-right text-xs print:text-black">
+                        <thead>
+                          <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-black text-[10px] border-b border-gray-100 dark:border-gray-800 print:bg-none print:border-b-2 print:border-black">
+                            <th className="p-3">رقم الطلب والعميلة</th>
+                            <th className="p-3">الأصناف والمنتجات المطلوبة</th>
+                            <th className="p-3">العنوان وتفاصيل التوصيل</th>
+                            <th className="p-3 text-center">القيمة الإجمالية</th>
+                            <th className="p-3 text-center">طريقة الدفع</th>
+                            <th className="p-3 text-center">التاريخ والوقت</th>
+                            <th className="p-3 text-center">الحالة</th>
+                            <th className="p-3 text-center print:hidden">إجراءات</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800 print:divide-y print:divide-black">
+                          {orders
+                            .filter(o => {
+                              if (orderArchiveFilter === 'all') return true;
+                              if (orderArchiveFilter === 'new') return o.status === 'pending' || o.status === 'processing';
+                              if (orderArchiveFilter === 'completed') return o.status === 'completed' || o.status === 'sent';
+                              if (orderArchiveFilter === 'canceled') return o.status === 'canceled';
+                              return true;
+                            })
+                            .map(order => (
+                              <tr key={order.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition print:hover:bg-none">
+                                <td className="p-3">
+                                  <div className="font-extrabold text-amber-950 dark:text-amber-400 font-mono print:text-black">#{order.id.slice(-6).toUpperCase()}</div>
+                                  <div className="font-bold text-gray-800 dark:text-white print:text-black mt-0.5">{order.userName || 'عميلة غير مسجلة'}</div>
+                                  <div className="text-[9px] text-gray-400 font-mono print:text-black" dir="ltr">{order.userPhone}</div>
+                                </td>
+                                <td className="p-3 text-gray-600 dark:text-gray-300 print:text-black max-w-xs leading-relaxed">
+                                  {order.items.map((it, idx) => (
+                                    <div key={idx} className="text-[10px]">
+                                      • {it.productName} <span className="font-black text-amber-900 dark:text-amber-300">({it.quantity}×)</span>
+                                    </div>
+                                  ))}
+                                </td>
+                                <td className="p-3 text-gray-500 dark:text-gray-400 print:text-black text-[10px]">
+                                  <div>{order.city} - {order.address}</div>
+                                  <div className="text-[9px] text-gray-400 mt-0.5">ملاحظات: {order.notes || 'لا يوجد'}</div>
+                                </td>
+                                <td className="p-3 text-center font-black text-amber-800 dark:text-amber-400 print:text-black">
+                                  {order.totalAmount.toLocaleString()} YER
+                                </td>
+                                <td className="p-3 text-center text-gray-600 dark:text-gray-300 font-semibold print:text-black">
+                                  {order.paymentMethod === 'wallet' ? '💳 المحفظة' : '💵 عند الاستلام'}
+                                </td>
+                                <td className="p-3 text-center text-gray-400 font-mono text-[9px] print:text-black">
+                                  {formatArabicDate(order.createdAt)}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[8.5px] font-black inline-block ${
+                                    order.status === 'completed' || order.status === 'sent'
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 print:border print:border-black print:text-black print:bg-none'
+                                      : order.status === 'canceled'
+                                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 print:border print:border-black print:text-black print:bg-none'
+                                      : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 print:border print:border-black print:text-black print:bg-none'
+                                  }`}>
+                                    {
+                                      order.status === 'completed' ? 'تم الاستلام والتسليم ✅' :
+                                      order.status === 'sent' ? 'تم الإرسال والشحن 🚚' :
+                                      order.status === 'canceled' ? 'ملغي ❌' : 'جديد قيد المراجعة ⏳'
+                                    }
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center print:hidden">
+                                  <button
+                                    onClick={() => handleDeleteOrder(order.id)}
+                                    className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 dark:hover:bg-rose-950/30 transition inline-flex items-center justify-center cursor-pointer"
+                                    title="حذف هذا الطلب نهائياً"
+                                  >
+                                    <Trash2Icon className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* SECTION C: EVENTS ARCHIVE */}
+              {subArchiveTab === 'events' && (
+                <div className="space-y-4">
+                  {/* Print Title (Visible only when printing) */}
+                  <div className="hidden print:block text-center space-y-2 mb-6 text-black" dir="rtl">
+                    <h2 className="text-xl font-bold border-b-2 border-black pb-2">تقرير أرشيف مسابقات وأصوات أم روح</h2>
+                    <p className="text-xs">المتجر: متجر أم روح الكبرى 🌸 | تاريخ الاستخراج: {new Date().toLocaleDateString('ar-YE')}</p>
+                    <p className="text-xs">عدد المتسابقين الكلي: {contestants.length} متسابق(ة)</p>
+                  </div>
+
+                  {contestants.length === 0 ? (
+                    <div className="text-center py-10 text-gray-400 text-xs font-bold">لا يوجد أي متسابقين مسجلين في المسابقة حالياً.</div>
+                  ) : (
+                    <div className="overflow-x-auto border border-gray-100 dark:border-gray-800 rounded-2xl print:border-black">
+                      <table className="w-full text-right text-xs print:text-black">
+                        <thead>
+                          <tr className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-black text-[10px] border-b border-gray-100 dark:border-gray-800 print:bg-none print:border-b-2 print:border-black">
+                            <th className="p-3">صورة المتسابق(ة)</th>
+                            <th className="p-3">الاسم ورقم الهاتف</th>
+                            <th className="p-3 text-center">الأصوات الذهبية 👍</th>
+                            <th className="p-3 text-center">الأصوات الفضية 👎</th>
+                            <th className="p-3 text-center">إجمالي عدد الأصوات</th>
+                            <th className="p-3 text-center print:hidden">إجراءات</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-800 print:divide-y print:divide-black">
+                          {contestants.map(c => (
+                            <tr key={c.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition print:hover:bg-none">
+                              <td className="p-3">
+                                {c.imageUrl ? (
+                                  <img src={c.imageUrl} alt={c.name} className="w-10 h-10 object-cover rounded-full border border-gray-200" />
+                                ) : (
+                                  <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 text-xs font-black">👤</div>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <div className="font-extrabold text-gray-900 dark:text-white print:text-black">{c.name}</div>
+                                <div className="text-[10px] text-gray-400 font-mono print:text-black" dir="ltr">{c.phone}</div>
+                              </td>
+                              <td className="p-3 text-center font-black text-emerald-600 dark:text-emerald-400 print:text-black">
+                                {c.greenVotes ?? 0} صوت
+                              </td>
+                              <td className="p-3 text-center font-black text-rose-500 dark:text-rose-400 print:text-black">
+                                {c.redVotes ?? 0} صوت
+                              </td>
+                              <td className="p-3 text-center font-black text-amber-800 dark:text-amber-400 print:text-black">
+                                {c.votes ?? 0} صوت كلي
+                              </td>
+                              <td className="p-3 text-center print:hidden">
+                                <button
+                                  onClick={() => {
+                                    askConfirmation(
+                                      'حذف المتسابق(ة) نهائياً 🗑️',
+                                      `هل أنتِ متأكدة من رغبتكِ في حذف المتسابق "${c.name}" من أرشيف المسابقات نهائياً وتصفير أصواته؟`,
+                                      () => {
+                                        Database.deleteContestant(c.id);
+                                        showToast('تم حذف المتسابق وإصدار التحديث.');
+                                        reloadData();
+                                      }
+                                    );
+                                  }}
+                                  className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 dark:hover:bg-rose-950/30 transition inline-flex items-center justify-center cursor-pointer"
+                                  title="حذف هذا المتسابق"
+                                >
+                                  <Trash2Icon className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
