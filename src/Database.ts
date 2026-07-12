@@ -1109,6 +1109,8 @@ export class Database {
       
       // Perform all read queries concurrently in parallel with a defensive 4000ms timeout
       // This protects the application from freezing or throwing 10s timeout warnings in limited networks
+      // Perform all read queries concurrently in parallel with a defensive 4000ms timeout
+      // This protects the application from freezing or throwing 10s timeout warnings in limited networks
       const [
         advDoc,
         admDoc,
@@ -1132,26 +1134,26 @@ export class Database {
         appNotifsSnap
       ] = await Promise.race([
         Promise.all([
-          getDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor')),
-          getDoc(doc(db, COLLECTIONS.SETTINGS, 'admin')),
-          getDoc(doc(db, COLLECTIONS.SETTINGS, 'general')),
-          getDocs(collection(db, COLLECTIONS.CATEGORIES)),
-          getDocs(collection(db, COLLECTIONS.PRODUCTS)),
-          getDocs(collection(db, COLLECTIONS.LOCATIONS)),
-          getDocs(collection(db, COLLECTIONS.USERS)),
-          getDocs(collection(db, COLLECTIONS.ORDERS)),
-          getDocs(collection(db, COLLECTIONS.GIFTS)),
-          getDocs(collection(db, COLLECTIONS.RECHARGES)),
-          getDocs(collection(db, COLLECTIONS.PHONE_REQUESTS)),
-          getDocs(collection(db, COLLECTIONS.NOTIFICATIONS)),
-          getDocs(collection(db, COLLECTIONS.TARGETED_NOTIFICATIONS)),
-          getDocs(collection(db, COLLECTIONS.TARGETED_GIFTS)),
-          getDocs(collection(db, COLLECTIONS.TARGETED_GIFT_LOGS)),
-          getDocs(collection(db, COLLECTIONS.TICKER_TEXTS)),
-          getDocs(collection(db, COLLECTIONS.ARCHIVED_EVENTS)),
-          getDocs(collection(db, COLLECTIONS.CONTESTANTS)),
-          getDocs(collection(db, COLLECTIONS.VOTE_LOGS)),
-          getDocs(collection(db, COLLECTIONS.APP_NOTIFICATIONS))
+          getDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor')).catch(() => null),
+          getDoc(doc(db, COLLECTIONS.SETTINGS, 'admin')).catch(() => null),
+          getDoc(doc(db, COLLECTIONS.SETTINGS, 'general')).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.CATEGORIES)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.PRODUCTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.LOCATIONS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.USERS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.ORDERS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.GIFTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.RECHARGES)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.PHONE_REQUESTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.NOTIFICATIONS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.TARGETED_NOTIFICATIONS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.TARGETED_GIFTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.TARGETED_GIFT_LOGS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.TICKER_TEXTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.ARCHIVED_EVENTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.CONTESTANTS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.VOTE_LOGS)).catch(() => null),
+          getDocs(collection(db, COLLECTIONS.APP_NOTIFICATIONS)).catch(() => null)
         ]),
         new Promise<any[]>((_, reject) => 
           setTimeout(() => reject(new Error('Firestore operation timeout (4000ms)')), 4000)
@@ -1159,23 +1161,23 @@ export class Database {
       ]);
 
       // 1. Process Settings (Advisor, Admin, General)
-      if (advDoc.exists()) {
+      if (advDoc && typeof advDoc.exists === 'function' && advDoc.exists()) {
         const advData = advDoc.data() as AdvisorSettings;
         saveToStorage(this.KEYS.ADVISOR, advData);
-      } else {
+      } else if (advDoc) {
         setDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor'), DEFAULT_ADVISOR_SETTINGS)
           .catch(err => console.warn('Non-blocking init write failed:', err));
       }
 
-      if (admDoc.exists()) {
+      if (admDoc && typeof admDoc.exists === 'function' && admDoc.exists()) {
         const admData = admDoc.data() as AdminSettings;
         saveToStorage(this.KEYS.ADMIN, admData);
-      } else {
+      } else if (admDoc) {
         setDoc(doc(db, COLLECTIONS.SETTINGS, 'admin'), DEFAULT_ADMIN_SETTINGS)
           .catch(err => console.warn('Non-blocking init write failed:', err));
       }
 
-      if (genDoc.exists()) {
+      if (genDoc && typeof genDoc.exists === 'function' && genDoc.exists()) {
         const genData = genDoc.data();
         if (genData?.exchangeRate) {
           saveToStorage(this.KEYS.EXCHANGE_RATE, genData.exchangeRate);
@@ -1186,7 +1188,7 @@ export class Database {
         if (genData?.tickerTexts && Array.isArray(genData.tickerTexts) && genData.tickerTexts.length > 0) {
           saveToStorage(this.KEYS.TICKER_TEXTS, genData.tickerTexts);
         }
-      } else {
+      } else if (genDoc) {
         setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), {
           exchangeRate: DEFAULT_EXCHANGE_RATE,
           offers: DEFAULT_OFFERS_IMAGES
@@ -1194,183 +1196,209 @@ export class Database {
       }
 
       // Process News Ticker Texts from the dedicated collection (table)
-      if (tickerSnap && !tickerSnap.empty) {
-        const tickerList: any[] = [];
-        tickerSnap.forEach(d => tickerList.push(d.data()));
-        tickerList.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-        const texts = tickerList.map(item => item.text).filter(Boolean);
-        if (texts.length > 0) {
-          saveToStorage(this.KEYS.TICKER_TEXTS, texts);
+      if (tickerSnap && typeof tickerSnap.forEach === 'function') {
+        if (!tickerSnap.empty) {
+          const tickerList: any[] = [];
+          tickerSnap.forEach(d => tickerList.push(d.data()));
+          tickerList.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          const texts = tickerList.map(item => item.text).filter(Boolean);
+          if (texts.length > 0) {
+            saveToStorage(this.KEYS.TICKER_TEXTS, texts);
+          }
+        } else {
+          const defaultTicker = [
+            'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
+            'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
+            'خصومات وعروض مميز مستمرة على كافة الأقسام 🌟'
+          ];
+          defaultTicker.forEach((text, i) => {
+            setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
+              id: `ticker_${i}`,
+              text,
+              sortOrder: i,
+              createdAt: new Date().toISOString()
+            }).catch(() => {});
+          });
+          saveToStorage(this.KEYS.TICKER_TEXTS, defaultTicker);
         }
-      } else {
-        const defaultTicker = [
-          'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
-          'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
-          'خصومات وعروض مميز مستمرة على كافة الأقسام 🌟'
-        ];
-        defaultTicker.forEach((text, i) => {
-          setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
-            id: `ticker_${i}`,
-            text,
-            sortOrder: i,
-            createdAt: new Date().toISOString()
-          }).catch(() => {});
-        });
-        saveToStorage(this.KEYS.TICKER_TEXTS, defaultTicker);
       }
 
       // 2. Process Categories
-      if (catSnap.empty) {
-        DEFAULT_CATEGORIES.forEach(cat => {
-          setDoc(doc(db, COLLECTIONS.CATEGORIES, cat.id), cat)
-            .catch(err => console.warn('Non-blocking init write failed:', err));
-        });
-      } else {
-        const cats: Category[] = [];
-        catSnap.forEach(d => cats.push(d.data() as Category));
-        saveToStorage(this.KEYS.CATEGORIES, cats);
+      if (catSnap && typeof catSnap.forEach === 'function') {
+        if (catSnap.empty) {
+          DEFAULT_CATEGORIES.forEach(cat => {
+            setDoc(doc(db, COLLECTIONS.CATEGORIES, cat.id), cat)
+              .catch(err => console.warn('Non-blocking init write failed:', err));
+          });
+        } else {
+          const cats: Category[] = [];
+          catSnap.forEach(d => cats.push(d.data() as Category));
+          saveToStorage(this.KEYS.CATEGORIES, cats);
+        }
       }
 
       // 3. Process Products
-      if (prodSnap.empty) {
-        DEFAULT_PRODUCTS.forEach(prod => {
-          setDoc(doc(db, COLLECTIONS.PRODUCTS, prod.id), prod)
-            .catch(err => console.warn('Non-blocking init write failed:', err));
-        });
-      } else {
-        const prods: Product[] = [];
-        prodSnap.forEach(d => prods.push(d.data() as Product));
-        saveToStorage(this.KEYS.PRODUCTS, prods);
+      if (prodSnap && typeof prodSnap.forEach === 'function') {
+        if (prodSnap.empty) {
+          DEFAULT_PRODUCTS.forEach(prod => {
+            setDoc(doc(db, COLLECTIONS.PRODUCTS, prod.id), prod)
+              .catch(err => console.warn('Non-blocking init write failed:', err));
+          });
+        } else {
+          const prods: Product[] = [];
+          prodSnap.forEach(d => prods.push(d.data() as Product));
+          saveToStorage(this.KEYS.PRODUCTS, prods);
+        }
       }
 
       // 4. Process Locations
-      if (locSnap.empty) {
-        DEFAULT_LOCATIONS.forEach(loc => {
-          setDoc(doc(db, COLLECTIONS.LOCATIONS, loc.id), loc)
-            .catch(err => console.warn('Non-blocking init write failed:', err));
-        });
-      } else {
-        const locs: DeliveryLocation[] = [];
-        locSnap.forEach(d => locs.push(d.data() as DeliveryLocation));
-        saveToStorage(this.KEYS.LOCATIONS, locs);
+      if (locSnap && typeof locSnap.forEach === 'function') {
+        if (locSnap.empty) {
+          DEFAULT_LOCATIONS.forEach(loc => {
+            setDoc(doc(db, COLLECTIONS.LOCATIONS, loc.id), loc)
+              .catch(err => console.warn('Non-blocking init write failed:', err));
+          });
+        } else {
+          const locs: DeliveryLocation[] = [];
+          locSnap.forEach(d => locs.push(d.data() as DeliveryLocation));
+          saveToStorage(this.KEYS.LOCATIONS, locs);
+        }
       }
 
       // 5. Process Users
-      const allUsers: User[] = [];
-      usersSnap.forEach(d => allUsers.push(d.data() as User));
-      if (allUsers.length > 0) {
-        saveToStorage('amrwh_all_users_list', allUsers);
-        const active = this.getUser();
-        let found = allUsers.find(u => u.id === active.id);
-        
-        const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
-        if (!found && currentDevId) {
-          found = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
-        } else if (found && !found.isRegistered && currentDevId) {
-          const registeredDevUser = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
-          if (registeredDevUser) {
-            found = registeredDevUser;
+      if (usersSnap && typeof usersSnap.forEach === 'function') {
+        const allUsers: User[] = [];
+        usersSnap.forEach(d => allUsers.push(d.data() as User));
+        if (allUsers.length > 0) {
+          saveToStorage('amrwh_all_users_list', allUsers);
+          const active = this.getUser();
+          let found = allUsers.find(u => u.id === active.id);
+          
+          const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
+          if (!found && currentDevId) {
+            found = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
+          } else if (found && !found.isRegistered && currentDevId) {
+            const registeredDevUser = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
+            if (registeredDevUser) {
+              found = registeredDevUser;
+            }
           }
-        }
 
-        if (found) {
-          if (!found.deviceId && currentDevId) {
-            found.deviceId = currentDevId;
-            setDoc(doc(db, COLLECTIONS.USERS, found.id), found)
-              .catch(err => console.warn('Non-blocking user update failed:', err));
+          if (found) {
+            if (!found.deviceId && currentDevId) {
+              found.deviceId = currentDevId;
+              setDoc(doc(db, COLLECTIONS.USERS, found.id), found)
+                .catch(err => console.warn('Non-blocking user update failed:', err));
+            }
+            saveToStorage(this.KEYS.USER, found);
+          } else {
+            if (!active.deviceId && currentDevId) {
+              active.deviceId = currentDevId;
+            }
+            setDoc(doc(db, COLLECTIONS.USERS, active.id), active)
+              .catch(err => console.warn('Non-blocking user save failed:', err));
           }
-          saveToStorage(this.KEYS.USER, found);
         } else {
+          const active = this.getUser();
+          const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
           if (!active.deviceId && currentDevId) {
             active.deviceId = currentDevId;
           }
           setDoc(doc(db, COLLECTIONS.USERS, active.id), active)
             .catch(err => console.warn('Non-blocking user save failed:', err));
         }
-      } else {
-        const active = this.getUser();
-        const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
-        if (!active.deviceId && currentDevId) {
-          active.deviceId = currentDevId;
-        }
-        setDoc(doc(db, COLLECTIONS.USERS, active.id), active)
-          .catch(err => console.warn('Non-blocking user save failed:', err));
       }
 
       // 6. Process Orders
-      const orders: Order[] = [];
-      orderSnap.forEach(d => orders.push(d.data() as Order));
-      saveToStorage(this.KEYS.ORDERS, orders);
+      if (orderSnap && typeof orderSnap.forEach === 'function') {
+        const orders: Order[] = [];
+        orderSnap.forEach(d => orders.push(d.data() as Order));
+        saveToStorage(this.KEYS.ORDERS, orders);
+      }
 
       // 7. Process Gifts
-      const gifts: Gift[] = [];
-      giftSnap.forEach(d => gifts.push(d.data() as Gift));
-      saveToStorage(this.KEYS.GIFTS, gifts);
+      if (giftSnap && typeof giftSnap.forEach === 'function') {
+        const gifts: Gift[] = [];
+        giftSnap.forEach(d => gifts.push(d.data() as Gift));
+        saveToStorage(this.KEYS.GIFTS, gifts);
+      }
 
       // 8. Process Recharges
-      const recharges: RechargeRequest[] = [];
-      rechSnap.forEach(d => recharges.push(d.data() as RechargeRequest));
-      saveToStorage(this.KEYS.RECHARGES, recharges);
+      if (rechSnap && typeof rechSnap.forEach === 'function') {
+        const recharges: RechargeRequest[] = [];
+        rechSnap.forEach(d => recharges.push(d.data() as RechargeRequest));
+        saveToStorage(this.KEYS.RECHARGES, recharges);
+      }
 
       // 9. Process Phone Requests
-      const phoneReqs: PhoneChangeRequest[] = [];
-      phoneSnap.forEach(d => phoneReqs.push(d.data() as PhoneChangeRequest));
-      saveToStorage(this.KEYS.PHONE_REQUESTS, phoneReqs);
+      if (phoneSnap && typeof phoneSnap.forEach === 'function') {
+        const phoneReqs: PhoneChangeRequest[] = [];
+        phoneSnap.forEach(d => phoneReqs.push(d.data() as PhoneChangeRequest));
+        saveToStorage(this.KEYS.PHONE_REQUESTS, phoneReqs);
+      }
 
       // 10. Process Notifications
-      if (notifSnap.empty) {
-        DEFAULT_NOTIFICATIONS.forEach(n => {
-          setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, n.id), n)
-            .catch(err => console.warn('Non-blocking init write failed:', err));
-        });
-      } else {
-        const notifications: Notification[] = [];
-        notifSnap.forEach(d => notifications.push(d.data() as Notification));
-        saveToStorage(this.KEYS.NOTIFICATIONS, notifications);
+      if (notifSnap && typeof notifSnap.forEach === 'function') {
+        if (notifSnap.empty) {
+          DEFAULT_NOTIFICATIONS.forEach(n => {
+            setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, n.id), n)
+              .catch(err => console.warn('Non-blocking init write failed:', err));
+          });
+        } else {
+          const notifications: Notification[] = [];
+          notifSnap.forEach(d => notifications.push(d.data() as Notification));
+          saveToStorage(this.KEYS.NOTIFICATIONS, notifications);
+        }
       }
 
       // 11. Process Targeted Notifications
-      const tNotifications: TargetedNotification[] = [];
-      tNotifSnap.forEach(d => tNotifications.push(d.data() as TargetedNotification));
-      saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, tNotifications);
+      if (tNotifSnap && typeof tNotifSnap.forEach === 'function') {
+        const tNotifications: TargetedNotification[] = [];
+        tNotifSnap.forEach(d => tNotifications.push(d.data() as TargetedNotification));
+        saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, tNotifications);
+      }
 
       // 12. Process Targeted Gifts
-      const tGifts: TargetedGift[] = [];
-      tGiftsSnap.forEach(d => tGifts.push(d.data() as TargetedGift));
-      saveToStorage(this.KEYS.TARGETED_GIFTS, tGifts);
+      if (tGiftsSnap && typeof tGiftsSnap.forEach === 'function') {
+        const tGifts: TargetedGift[] = [];
+        tGiftsSnap.forEach(d => tGifts.push(d.data() as TargetedGift));
+        saveToStorage(this.KEYS.TARGETED_GIFTS, tGifts);
+      }
 
       // 13. Process Targeted Gift Logs
-      const tLogs: UserTargetedGiftLog[] = [];
-      tLogsSnap.forEach(d => tLogs.push(d.data() as UserTargetedGiftLog));
-      saveToStorage(this.KEYS.TARGETED_GIFT_LOGS, tLogs);
+      if (tLogsSnap && typeof tLogsSnap.forEach === 'function') {
+        const tLogs: UserTargetedGiftLog[] = [];
+        tLogsSnap.forEach(d => tLogs.push(d.data() as UserTargetedGiftLog));
+        saveToStorage(this.KEYS.TARGETED_GIFT_LOGS, tLogs);
+      }
 
       // 14. Process Archived Events
-      const archivedEvents: ArchivedEvent[] = [];
-      if (eventsSnap && !eventsSnap.empty) {
+      if (eventsSnap && typeof eventsSnap.forEach === 'function') {
+        const archivedEvents: ArchivedEvent[] = [];
         eventsSnap.forEach(d => archivedEvents.push(d.data() as ArchivedEvent));
+        saveToStorage(this.KEYS.ARCHIVED_EVENTS, archivedEvents);
       }
-      saveToStorage(this.KEYS.ARCHIVED_EVENTS, archivedEvents);
 
       // 15. Process Contestants
-      const contestants: Contestant[] = [];
-      if (contestantsSnap && !contestantsSnap.empty) {
+      if (contestantsSnap && typeof contestantsSnap.forEach === 'function') {
+        const contestants: Contestant[] = [];
         contestantsSnap.forEach(d => contestants.push(d.data() as Contestant));
+        saveToStorage(this.KEYS.CONTESTANTS, contestants);
       }
-      saveToStorage(this.KEYS.CONTESTANTS, contestants);
 
       // 16. Process Vote Logs
-      const voteLogs: VoteLog[] = [];
-      if (votesSnap && !votesSnap.empty) {
+      if (votesSnap && typeof votesSnap.forEach === 'function') {
+        const voteLogs: VoteLog[] = [];
         votesSnap.forEach(d => voteLogs.push(d.data() as VoteLog));
+        saveToStorage(this.KEYS.VOTE_LOGS, voteLogs);
       }
-      saveToStorage(this.KEYS.VOTE_LOGS, voteLogs);
 
       // 17. Process App Notifications
-      const appNotifs: AppNotification[] = [];
-      if (appNotifsSnap && !appNotifsSnap.empty) {
+      if (appNotifsSnap && typeof appNotifsSnap.forEach === 'function') {
+        const appNotifs: AppNotification[] = [];
         appNotifsSnap.forEach(d => appNotifs.push(d.data() as AppNotification));
+        saveToStorage(this.KEYS.APP_NOTIFICATIONS, appNotifs);
       }
-      saveToStorage(this.KEYS.APP_NOTIFICATIONS, appNotifs);
 
       // Save synchronization metadata
       saveToStorage('amrwh_last_sync_success', 'true');
@@ -3055,6 +3083,78 @@ export class Database {
       deleteDoc(doc(db, COLLECTIONS.CONTESTANTS, id)).catch(e => console.error("Firestore contestant delete error:", e));
     }
     return { success: true };
+  }
+
+  static clearAllContestantsAndVotes(): void {
+    const contestantsList = this.getContestants();
+    const votesList = this.getVoteLogs();
+    saveToStorage(this.KEYS.CONTESTANTS, []);
+    saveToStorage(this.KEYS.VOTE_LOGS, []);
+    
+    for (const c of contestantsList) {
+      if (isSupabaseConfigured()) {
+        supabase!.from('contestants').delete().eq('id', c.id).then(undefined, () => {});
+      } else {
+        deleteDoc(doc(db, COLLECTIONS.CONTESTANTS, c.id)).catch(() => {});
+      }
+    }
+    for (const v of votesList) {
+      if (isSupabaseConfigured()) {
+        supabase!.from('vote_logs').delete().eq('id', v.id).then(undefined, () => {});
+      } else {
+        deleteDoc(doc(db, COLLECTIONS.VOTE_LOGS, v.id)).catch(() => {});
+      }
+    }
+  }
+
+  static deleteOrder(id: string): void {
+    const list = this.getOrders();
+    const filtered = list.filter(o => o.id !== id);
+    saveToStorage(this.KEYS.ORDERS, filtered);
+    if (isSupabaseConfigured()) {
+      supabase!.from('orders').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase order delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.ORDERS, id)).catch(e => console.error("Firestore order delete error:", e));
+    }
+  }
+
+  static clearAllOrders(): void {
+    const list = this.getOrders();
+    saveToStorage(this.KEYS.ORDERS, []);
+    for (const order of list) {
+      if (isSupabaseConfigured()) {
+        supabase!.from('orders').delete().eq('id', order.id).then(undefined, () => {});
+      } else {
+        deleteDoc(doc(db, COLLECTIONS.ORDERS, order.id)).catch(() => {});
+      }
+    }
+  }
+
+  static deleteRechargeRequest(id: string): void {
+    const list = this.getRechargeRequests();
+    const filtered = list.filter(r => r.id !== id);
+    saveToStorage(this.KEYS.RECHARGES, filtered);
+    if (isSupabaseConfigured()) {
+      supabase!.from('recharges').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase recharge delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.RECHARGES, id)).catch(e => console.error("Firestore recharge delete error:", e));
+    }
+  }
+
+  static clearAllRechargeRequests(): void {
+    const list = this.getRechargeRequests();
+    saveToStorage(this.KEYS.RECHARGES, []);
+    for (const req of list) {
+      if (isSupabaseConfigured()) {
+        supabase!.from('recharges').delete().eq('id', req.id).then(undefined, () => {});
+      } else {
+        deleteDoc(doc(db, COLLECTIONS.RECHARGES, req.id)).catch(() => {});
+      }
+    }
   }
 
   static getVoteLogs(): VoteLog[] {
