@@ -70,5 +70,30 @@ service cloud.firestore {
     match /ticker_texts/{tickerId} {
       allow read, write: if true;
     }
+
+    // Archived Events collection
+    match /archived_events/{eventId} {
+      allow read, write: if true;
+    }
+
+    // Contestants collection
+    match /contestants/{contestantId} {
+      allow read, write: if true;
+    }
+
+    // Vote Logs collection
+    match /vote_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // App Notifications collection
+    match /app_notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // Active Carts collection
+    match /active_carts/{cartId} {
+      allow read, write: if true;
+    }
   }
 }

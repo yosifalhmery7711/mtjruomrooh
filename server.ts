@@ -610,22 +610,385 @@ async function runStartupSchemaPatch() {
     }
     const client = new ClientConstructor({
       connectionString,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
       ssl: { rejectUnauthorized: false }
     });
     await client.connect();
-    console.log('[Startup Patch] Connected to PostgreSQL. Checking/applying schema patch...');
+    console.log('[Startup Patch] Connected to PostgreSQL. Checking table setup in public schema...');
     
-    // Patch users.phone UNIQUE constraint
-    await client.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;');
-    
-    // Patch recharges.currency column
-    await client.query('ALTER TABLE recharges ADD COLUMN IF NOT EXISTS "currency" VARCHAR(50) DEFAULT \'YER_NEW\';');
-    
-    console.log('[Startup Patch] Schema auto-patch checks completed successfully!');
+    // Check existing table count
+    const tableCountRes = await client.query(`
+      SELECT COUNT(*) as count 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+    `);
+    const tableCount = parseInt(tableCountRes.rows[0]?.count || '0', 10);
+    console.log(`[Startup Patch] Found ${tableCount} existing tables.`);
+
+    if (tableCount === 0) {
+      console.log('[Startup Patch] Database is completely blank. Executing full initialization from supabase-schema.sql...');
+      const sqlPath = path.join(process.cwd(), 'supabase-schema.sql');
+      if (fs.existsSync(sqlPath)) {
+        const sqlScript = fs.readFileSync(sqlPath, 'utf8');
+        await client.query(sqlScript);
+        console.log('[Startup Patch] Database tables, policies, and storage initialized successfully from script!');
+      } else {
+        console.warn('[Startup Patch] Warning: supabase-schema.sql not found at root path.');
+      }
+    } else {
+      console.log('[Startup Patch] Database already exists with some tables. Running safe CREATE TABLE IF NOT EXISTS queries...');
+      
+      // 1. settings
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS settings (
+          id VARCHAR(255) PRIMARY KEY,
+          data JSONB NOT NULL,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 2. active_carts
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS active_carts (
+          id VARCHAR(255) PRIMARY KEY,
+          items JSONB DEFAULT '[]'::jsonb,
+          "userId" VARCHAR(255),
+          "updatedAt" VARCHAR(100),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 3. ticker_texts
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS ticker_texts (
+          id VARCHAR(255) PRIMARY KEY,
+          text TEXT NOT NULL,
+          "sortOrder" INT DEFAULT 0,
+          "createdAt" VARCHAR(100),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 4. locations
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS locations (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
+          "deliveryFee" NUMERIC NOT NULL DEFAULT 0,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 5. categories
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS categories (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL UNIQUE,
+          image TEXT NOT NULL,
+          "productCount" INT DEFAULT 0,
+          "sortOrder" INT DEFAULT 0,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 6. users
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          phone VARCHAR(255) NOT NULL,
+          address TEXT DEFAULT '',
+          currency VARCHAR(50) DEFAULT 'YER_NEW',
+          balance NUMERIC DEFAULT 0,
+          "giftBalance" NUMERIC DEFAULT 0,
+          favorites JSONB DEFAULT '[]'::jsonb,
+          "joinDate" VARCHAR(50),
+          "isRegistered" BOOLEAN DEFAULT false,
+          "deviceId" VARCHAR(255),
+          "balanceCurrency" VARCHAR(50) DEFAULT 'YER_NEW',
+          "giftBalanceCurrency" VARCHAR(50) DEFAULT 'YER_NEW',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 7. targeted_notifications
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS targeted_notifications (
+          id VARCHAR(255) PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          "expiryAt" VARCHAR(100) NOT NULL,
+          "targetType" VARCHAR(100) NOT NULL,
+          "targetValue" VARCHAR(255) NOT NULL,
+          "isPopup" BOOLEAN DEFAULT false,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 8. targeted_gifts
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS targeted_gifts (
+          id VARCHAR(255) PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          amount NUMERIC NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          "expiryAt" VARCHAR(100) NOT NULL,
+          "targetType" VARCHAR(100) NOT NULL,
+          "targetValue" VARCHAR(255) NOT NULL,
+          "daysToUse" INT DEFAULT 7,
+          "claimedUserIds" JSONB DEFAULT '[]'::jsonb,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 9. products
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS products (
+          id VARCHAR(255) PRIMARY KEY,
+          code VARCHAR(255) NOT NULL UNIQUE,
+          name VARCHAR(255) NOT NULL,
+          "categoryId" VARCHAR(255) NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+          "categoryName" VARCHAR(255) NOT NULL,
+          "subCategoryIds" JSONB DEFAULT '[]'::jsonb,
+          description TEXT,
+          "priceYERNew" NUMERIC NOT NULL DEFAULT 0,
+          images JSONB DEFAULT '[]'::jsonb,
+          properties JSONB DEFAULT '[]'::jsonb,
+          "isOnOffer" BOOLEAN DEFAULT false,
+          "offerPriceNew" NUMERIC,
+          "offerOldPrice" NUMERIC,
+          rating NUMERIC DEFAULT 5,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 10. orders
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS orders (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          "userName" VARCHAR(255) NOT NULL,
+          "userPhone" VARCHAR(255) NOT NULL,
+          address TEXT NOT NULL,
+          "deliveryFee" NUMERIC DEFAULT 0,
+          items JSONB NOT NULL,
+          "senderName" VARCHAR(255),
+          "senderAccount" VARCHAR(255),
+          "receiptImage" TEXT,
+          "totalAmount" NUMERIC NOT NULL,
+          currency VARCHAR(50) NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          status VARCHAR(50) DEFAULT 'pending',
+          "paymentMethod" VARCHAR(100) NOT NULL,
+          "checkoutVia" VARCHAR(100) DEFAULT 'app',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 11. gifts
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS gifts (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          "userName" VARCHAR(255) NOT NULL,
+          "userPhone" VARCHAR(255) NOT NULL,
+          amount NUMERIC NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 12. recharges
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS recharges (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          "userName" VARCHAR(255) NOT NULL,
+          "userPhone" VARCHAR(255) NOT NULL,
+          "senderName" VARCHAR(255),
+          "senderAccount" VARCHAR(255),
+          amount NUMERIC NOT NULL,
+          "currency" VARCHAR(50) DEFAULT 'YER_NEW',
+          "receiptImage" TEXT,
+          "createdAt" VARCHAR(100) NOT NULL,
+          status VARCHAR(50) DEFAULT 'pending',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 13. phone_requests
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS phone_requests (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          "userName" VARCHAR(255) NOT NULL,
+          "oldPhone" VARCHAR(255) NOT NULL,
+          "newPhone" VARCHAR(255) NOT NULL,
+          "newName" VARCHAR(255),
+          "createdAt" VARCHAR(100) NOT NULL,
+          status VARCHAR(50) DEFAULT 'pending',
+          type VARCHAR(50) DEFAULT 'change_phone',
+          "newDeviceId" VARCHAR(255),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 14. notifications
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          "isRead" BOOLEAN DEFAULT false,
+          image TEXT,
+          "productId" VARCHAR(255) REFERENCES products(id) ON DELETE SET NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 15. targeted_gift_logs
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS targeted_gift_logs (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          "userName" VARCHAR(255) NOT NULL,
+          "userPhone" VARCHAR(255) NOT NULL,
+          amount NUMERIC NOT NULL,
+          "giftCampaignId" VARCHAR(255) NOT NULL REFERENCES targeted_gifts(id) ON DELETE CASCADE,
+          "giftCampaignTitle" VARCHAR(255) NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          "expiryAt" VARCHAR(100) NOT NULL,
+          status VARCHAR(50) DEFAULT 'active',
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 16. archived_events
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS archived_events (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          date VARCHAR(100) NOT NULL,
+          "winnerName" VARCHAR(255) NOT NULL,
+          "giftAmount" NUMERIC NOT NULL,
+          "giftCurrency" VARCHAR(50) NOT NULL,
+          "deliveryProofImage" TEXT,
+          "showInSlider" BOOLEAN DEFAULT false,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 17. contestants
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS contestants (
+          id VARCHAR(255) PRIMARY KEY,
+          "userId" VARCHAR(255),
+          name VARCHAR(255) NOT NULL,
+          phone VARCHAR(255) NOT NULL,
+          "deviceId" VARCHAR(255),
+          "createdAt" VARCHAR(100) NOT NULL,
+          "greenVotes" INT DEFAULT 0,
+          "redVotes" INT DEFAULT 0,
+          votes INT DEFAULT 0,
+          "imageUrl" TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 18. vote_logs
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS vote_logs (
+          id VARCHAR(255) PRIMARY KEY,
+          "contestantId" VARCHAR(255) REFERENCES contestants(id) ON DELETE CASCADE,
+          "voterUserId" VARCHAR(255),
+          "voterDeviceId" VARCHAR(255) NOT NULL,
+          "voterType" VARCHAR(50) DEFAULT 'green',
+          "createdAt" VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // 19. app_notifications
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS app_notifications (
+          id VARCHAR(255) PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          "createdAt" VARCHAR(100) NOT NULL,
+          "expiryAt" VARCHAR(100) NOT NULL,
+          image TEXT,
+          "productId" VARCHAR(255) REFERENCES products(id) ON DELETE SET NULL,
+          frequency INTEGER,
+          "durationHours" INTEGER,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // Safe Indexes Creation
+      await client.query('CREATE INDEX IF NOT EXISTS idx_products_category ON products("categoryId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_orders_user ON orders("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_gifts_user ON gifts("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_recharges_user ON recharges("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_phone_req_user ON phone_requests("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_gift_logs_user ON targeted_gift_logs("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_gift_logs_campaign ON targeted_gift_logs("giftCampaignId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_contestants_user ON contestants("userId");');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_vote_logs_contestant ON vote_logs("contestantId");');
+
+      // Setup Row-Level Security on all public tables
+      await client.query(`
+        DO $$
+        DECLARE
+          tab RECORD;
+        BEGIN
+          FOR tab IN 
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+              AND table_type = 'BASE TABLE'
+          LOOP
+            EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', tab.table_name);
+            EXECUTE format('DROP POLICY IF EXISTS "Permissive Select Policy" ON %I;', tab.table_name);
+            EXECUTE format('DROP POLICY IF EXISTS "Permissive Insert Policy" ON %I;', tab.table_name);
+            EXECUTE format('DROP POLICY IF EXISTS "Permissive Update Policy" ON %I;', tab.table_name);
+            EXECUTE format('DROP POLICY IF EXISTS "Permissive Delete Policy" ON %I;', tab.table_name);
+            
+            EXECUTE format('CREATE POLICY "Permissive Select Policy" ON %I FOR SELECT USING (true);', tab.table_name);
+            EXECUTE format('CREATE POLICY "Permissive Insert Policy" ON %I FOR INSERT WITH CHECK (true);', tab.table_name);
+            EXECUTE format('CREATE POLICY "Permissive Update Policy" ON %I FOR UPDATE USING (true) WITH CHECK (true);', tab.table_name);
+            EXECUTE format('CREATE POLICY "Permissive Delete Policy" ON %I FOR DELETE USING (true);', tab.table_name);
+          END LOOP;
+        END $$;
+      `);
+
+      // Setup Public Storage bucket
+      try {
+        await client.query(`
+          INSERT INTO storage.buckets (id, name, public) 
+          VALUES ('amrwh-storage', 'amrwh-storage', true)
+          ON CONFLICT (id) DO NOTHING;
+        `);
+        await client.query(`
+          DROP POLICY IF EXISTS "Public Storage Access" ON storage.objects;
+          CREATE POLICY "Public Storage Access" ON storage.objects FOR ALL USING (bucket_id = 'amrwh-storage') WITH CHECK (bucket_id = 'amrwh-storage');
+        `);
+      } catch (e: any) {
+        console.warn('[Startup Patch] Non-blocking storage bucket setup failed:', e.message || e);
+      }
+
+      // Check users constraint unique drop and recharges currency addition
+      await client.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;');
+      await client.query('ALTER TABLE recharges ADD COLUMN IF NOT EXISTS "currency" VARCHAR(50) DEFAULT \'YER_NEW\';');
+    }
+
+    console.log('[Startup Patch] Auto-setup and table verification completed successfully!');
     await client.end();
   } catch (err: any) {
-    console.error('[Startup Patch] Auto-patch error:', err.message || err);
+    console.error('[Startup Patch] Auto-setup failed on error:', err.message || err);
   }
 }
 
