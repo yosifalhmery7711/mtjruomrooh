@@ -29,7 +29,7 @@ import {
 } from './types';
 import { db, COLLECTIONS, auth } from './firebase';
 import { collection, doc, getDoc, getDocs, setDoc as originalSetDoc, updateDoc as originalUpdateDoc, deleteDoc as originalDeleteDoc, query, where } from 'firebase/firestore';
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, switchToProxy, switchToDirect, isProxyActive } from './supabase';
 
 // دوال مغلفة لعمليات تعديل فايربيس لتجنب استهلاك كوتا الاستهلاك عند تفعيل وضع جوجل شيتس
 function setDoc(reference: any, data: any, options?: any): Promise<void> {
@@ -903,73 +903,57 @@ export class Database {
         console.log('Database Sync: Syncing from Supabase...');
         let advRes, admRes, genRes, catRes, prodRes, locRes, usersRes, orderRes, giftRes, rechRes, phoneRes, notifRes, tNotifRes, tGiftsRes, tLogsRes, tickerRes, archivedEventsRes, contestantsRes, voteLogsRes, appNotificationsRes;
         
+        let results;
         let isFinished = false;
-        const slowTimeout = setTimeout(() => {
-          if (!isFinished) {
-            console.warn("Supabase sync taking more than 7s...");
-            if (typeof window !== 'undefined' && !this.hasSyncedOnce()) {
-              window.dispatchEvent(new CustomEvent('amrwh_network_slow', {
-                detail: {
-                  hasCache: false
-                }
-              }));
-            }
-          }
-        }, 7000);
+
+        const performFetch = () => Promise.all([
+          supabase!.from('settings').select('*').eq('id', 'advisor').maybeSingle(),
+          supabase!.from('settings').select('*').eq('id', 'admin').maybeSingle(),
+          supabase!.from('settings').select('*').eq('id', 'general').maybeSingle(),
+          supabase!.from('categories').select('*'),
+          supabase!.from('products').select('*'),
+          supabase!.from('locations').select('*'),
+          supabase!.from('users').select('*'),
+          supabase!.from('orders').select('*'),
+          supabase!.from('gifts').select('*'),
+          supabase!.from('recharges').select('*'),
+          supabase!.from('phone_requests').select('*'),
+          supabase!.from('notifications').select('*'),
+          supabase!.from('targeted_notifications').select('*'),
+          supabase!.from('targeted_gifts').select('*'),
+          supabase!.from('targeted_gift_logs').select('*'),
+          supabase!.from('ticker_texts').select('*'),
+          supabase!.from('archived_events').select('*'),
+          supabase!.from('contestants').select('*'),
+          supabase!.from('vote_logs').select('*'),
+          supabase!.from('app_notifications').select('*')
+        ]);
+
+        let directTimeoutId: any = null;
+        const directTimeoutPromise = new Promise<never>((_, reject) => {
+          directTimeoutId = setTimeout(() => {
+            reject(new Error('TIMEOUT_DIRECT'));
+          }, 4000);
+        });
 
         try {
-          const results = await Promise.all([
-            supabase!.from('settings').select('*').eq('id', 'advisor').maybeSingle(),
-            supabase!.from('settings').select('*').eq('id', 'admin').maybeSingle(),
-            supabase!.from('settings').select('*').eq('id', 'general').maybeSingle(),
-            supabase!.from('categories').select('*'),
-            supabase!.from('products').select('*'),
-            supabase!.from('locations').select('*'),
-            supabase!.from('users').select('*'),
-            supabase!.from('orders').select('*'),
-            supabase!.from('gifts').select('*'),
-            supabase!.from('recharges').select('*'),
-            supabase!.from('phone_requests').select('*'),
-            supabase!.from('notifications').select('*'),
-            supabase!.from('targeted_notifications').select('*'),
-            supabase!.from('targeted_gifts').select('*'),
-            supabase!.from('targeted_gift_logs').select('*'),
-            supabase!.from('ticker_texts').select('*'),
-            supabase!.from('archived_events').select('*'),
-            supabase!.from('contestants').select('*'),
-            supabase!.from('vote_logs').select('*'),
-            supabase!.from('app_notifications').select('*')
+          console.log('Database Sync: Attempting direct connection...');
+          results = await Promise.race([
+            performFetch(),
+            directTimeoutPromise
           ]);
-
           isFinished = true;
-          clearTimeout(slowTimeout);
-
-          [
-            advRes,
-            admRes,
-            genRes,
-            catRes,
-            prodRes,
-            locRes,
-            usersRes,
-            orderRes,
-            giftRes,
-            rechRes,
-            phoneRes,
-            notifRes,
-            tNotifRes,
-            tGiftsRes,
-            tLogsRes,
-            tickerRes,
-            archivedEventsRes,
-            contestantsRes,
-            voteLogsRes,
-            appNotificationsRes
-          ] = results;
+          if (directTimeoutId) clearTimeout(directTimeoutId);
+          console.log("Database Sync: Direct connection succeeded within 4s.");
         } catch (e: any) {
-          isFinished = true;
-          clearTimeout(slowTimeout);
-          console.error("Supabase sync failed with error:", e);
+          if (directTimeoutId) clearTimeout(directTimeoutId);
+          console.warn("Database Sync: Direct connection failed or timed out (4s limit). Error:", e.message || e);
+
+          if (!isProxyActive()) {
+            console.log("Database Sync: Switching client to Proxy...");
+            switchToProxy();
+          }
+
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('amrwh_network_slow', {
               detail: {
@@ -977,9 +961,48 @@ export class Database {
               }
             }));
           }
-          if (onSyncComplete) onSyncComplete();
-          return;
+
+          try {
+            console.log("Database Sync: Retrying fetch via Vercel Proxy...");
+            results = await performFetch();
+            isFinished = true;
+            console.log("Database Sync: Proxy connection succeeded!");
+          } catch (proxyError: any) {
+            console.error("Database Sync: Proxy connection also failed:", proxyError);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('amrwh_network_slow', {
+                detail: {
+                  hasCache: this.hasSyncedOnce()
+                }
+              }));
+            }
+            if (onSyncComplete) onSyncComplete();
+            return;
+          }
         }
+
+        [
+          advRes,
+          admRes,
+          genRes,
+          catRes,
+          prodRes,
+          locRes,
+          usersRes,
+          orderRes,
+          giftRes,
+          rechRes,
+          phoneRes,
+          notifRes,
+          tNotifRes,
+          tGiftsRes,
+          tLogsRes,
+          tickerRes,
+          archivedEventsRes,
+          contestantsRes,
+          voteLogsRes,
+          appNotificationsRes
+        ] = results;
 
         if (catRes.error) console.warn("Supabase categories load error:", catRes.error);
         if (prodRes.error) console.warn("Supabase products load error:", prodRes.error);
