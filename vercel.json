@@ -7,6 +7,10 @@
   },
   "rewrites": [
     {
+      "source": "/supabase-proxy/:path*",
+      "destination": "https://kyvfjiwihwmorddsrbvd.supabase.co/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index.ts"
     },
