@@ -53,6 +53,17 @@ export default function CartTab({
 }: CartTabProps) {
   const [selectedCurrency, setSelectedCurrency] = useState<Currency>(user.currency);
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
+  const [localToast, setLocalToast] = useState<string | null>(null);
+
+  // Auto-dismiss local toast
+  useEffect(() => {
+    if (localToast) {
+      const timer = setTimeout(() => {
+        setLocalToast(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [localToast]);
 
   useEffect(() => {
     setSelectedCurrency(user.currency);
@@ -201,9 +212,10 @@ export default function CartTab({
     reader.readAsDataURL(file);
   };
 
-  const executeCheckout = (e: React.FormEvent) => {
+  const executeCheckout = (e: React.FormEvent | React.MouseEvent, viaMode?: 'app' | 'whatsapp') => {
     e.preventDefault();
     setFormError('');
+    const currentCheckoutVia = viaMode || checkoutVia;
 
     if (!user.isRegistered) {
       if (!guestName.trim()) {
@@ -338,7 +350,7 @@ ${itemsText}
           : transferType === 'kuraimi'
             ? 'al_kuraimi'
             : 'najm',
-      checkoutVia: checkoutVia
+      checkoutVia: currentCheckoutVia
     }, guestInfo);
 
     setLastOrderId(generatedOrderId);
@@ -346,7 +358,7 @@ ${itemsText}
     setShowCheckoutModal(false);
     onClearCart();
 
-    if (checkoutVia === 'whatsapp') {
+    if (currentCheckoutVia === 'whatsapp') {
       const formattedPhone = cleanPhone.replace(/[+\s-]/g, '');
       const directWaUrl = getWhatsAppLink(formattedPhone, messageText);
       window.location.href = directWaUrl;
@@ -587,6 +599,31 @@ ${itemsText}
               >
                 <FileText className="w-4.5 h-4.5" />
                 <span>إتمام عملية الطلب</span>
+              </button>
+
+              {/* Share Cart with Friends Button */}
+              <button
+                onClick={() => {
+                  try {
+                    const compact = cartItems.map(item => ({
+                      i: item.productId,
+                      q: item.quantity,
+                      p: item.selectedProperties
+                    }));
+                    const str = JSON.stringify(compact);
+                    const base64 = btoa(encodeURIComponent(str));
+                    const shareUrl = `${window.location.origin}/?share_cart=${base64}`;
+                    navigator.clipboard.writeText(shareUrl);
+                    setLocalToast('✓ تم نسخ رابط مشاركة سلة التسوق بنجاح! أرسليه لصديقتكِ الآن 🚀🌸');
+                  } catch (err) {
+                    console.error("Error sharing cart:", err);
+                    setLocalToast('❌ فشل في إنشاء رابط مشاركة السلة.');
+                  }
+                }}
+                className="w-full py-2.5 px-4 bg-amber-500/10 hover:bg-amber-500/15 dark:bg-amber-400/10 text-amber-950 dark:text-amber-400 rounded-2xl font-black text-xs shadow-sm transition border border-amber-500/10 flex items-center justify-center gap-1.5"
+              >
+                <span>🔗</span>
+                <span>مشاركة السلة مع صديقة</span>
               </button>
             </div>
           </div>
@@ -1027,8 +1064,11 @@ ${itemsText}
 
                     <button
                       id="checkout-app-btn"
-                      type="submit"
-                      onClick={() => setCheckoutVia('app')}
+                      type="button"
+                      onClick={(e) => {
+                        setCheckoutVia('app');
+                        executeCheckout(e, 'app');
+                      }}
                       className="w-full py-3 bg-gradient-to-l from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl font-black text-xs shadow-md transition transform active:scale-95 flex items-center justify-center gap-2"
                     >
                       <span className="text-sm">📱</span>
@@ -1037,8 +1077,11 @@ ${itemsText}
 
                     <button
                       id="checkout-whatsapp-btn"
-                      type="submit"
-                      onClick={() => setCheckoutVia('whatsapp')}
+                      type="button"
+                      onClick={(e) => {
+                        setCheckoutVia('whatsapp');
+                        executeCheckout(e, 'whatsapp');
+                      }}
                       className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-xs shadow-md transition transform active:scale-95 flex items-center justify-center gap-2"
                     >
                       <span className="text-sm">💬</span>
@@ -1104,6 +1147,21 @@ ${itemsText}
                   سنقوم بتحويلكِ إلى الواتساب مباشرة لإرسال تفاصيل الفاتورة وتأكيدها للإدارة مع كامل الصور المرفقة تلقائياً 🌸✨
                 </div>
               </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Local Toast feedback */}
+        <AnimatePresence>
+          {localToast && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="fixed bottom-24 inset-x-4 max-w-sm mx-auto bg-gray-950/90 text-white p-3.5 rounded-2xl text-center text-xs font-bold shadow-2xl z-[9999] border border-gray-800 backdrop-blur-sm"
+              style={{ direction: 'rtl' }}
+            >
+              {localToast}
             </motion.div>
           )}
         </AnimatePresence>
