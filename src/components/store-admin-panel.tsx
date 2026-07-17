@@ -4529,7 +4529,11 @@ export default function AdminPanel({
                           <div className="text-right">
                             <span className="text-[9px] text-gray-400 block">صاحبة السلة / جهاز المتصفح:</span>
                             <span className="text-xs font-black text-amber-950 dark:text-white">
-                              {cartUser ? `${cartUser.name} (${cartUser.phone})` : 'زائرة مجهولة (جهاز غير مسجل)'}
+                              {(() => {
+                                const cartName = cartUser ? cartUser.name : (cart.userName || '');
+                                const cartPhone = cartUser ? cartUser.phone : (cart.userPhone || '');
+                                return cartName ? `${cartName} (${cartPhone})` : 'زائرة مجهولة (جهاز غير مسجل)';
+                              })()}
                             </span>
                             <span className="text-[9px] text-gray-400 block mt-0.5" dir="ltr">المعرف: {cart.id}</span>
                           </div>
