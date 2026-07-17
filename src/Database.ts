@@ -3696,54 +3696,138 @@ export class Database {
 
   // --- PERSISTENT ACTIVE CARTS SYNCHRONIZATION ---
   static async syncCartToSupabase(cartItems: OrderItem[]): Promise<void> {
-    if (!isSupabaseConfigured()) return;
     const deviceId = this.getDeviceId();
     const user = this.getUser();
     const userId = user && user.id && user.id !== 'USER_DEFAULT' ? user.id : null;
+    const timestamp = new Date().toISOString();
+
+    // 1. Sync to Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const { error } = await supabase!.from('active_carts').upsert({
+          id: deviceId,
+          items: cartItems,
+          userId: userId,
+          updatedAt: timestamp
+        });
+        if (error) {
+          console.warn('Supabase active_carts sync failed, will rely on Firestore:', error);
+        } else {
+          console.log('Cart synced to Supabase successfully');
+        }
+      } catch (e) {
+        console.warn('Supabase active_carts sync exception, will rely on Firestore:', e);
+      }
+    }
+
+    // 2. Sync to Firestore (always do this as a extremely reliable cloud backup)
     try {
-      await supabase!.from('active_carts').upsert({
+      const cartDocRef = doc(db, 'active_carts', deviceId);
+      await originalSetDoc(cartDocRef, {
         id: deviceId,
         items: cartItems,
         userId: userId,
-        updatedAt: new Date().toISOString()
-      });
-      console.log('Cart synced to Supabase successfully');
+        updatedAt: timestamp,
+        userPhone: user ? user.phone : '',
+        userName: user ? user.name : ''
+      }, { merge: true });
+      console.log('Cart synced to Firestore successfully');
     } catch (e) {
-      console.warn('Failed to sync cart to Supabase:', e);
+      console.warn('Failed to sync cart to Firestore:', e);
     }
   }
 
   static async getSyncedCartFromSupabase(): Promise<OrderItem[] | null> {
-    if (!isSupabaseConfigured()) return null;
     const deviceId = this.getDeviceId();
-    try {
-      const { data, error } = await supabase!.from('active_carts').select('items').eq('id', deviceId).maybeSingle();
-      if (error) {
-        console.warn('Failed to retrieve synced cart:', error);
-        return null;
+    
+    // First try Supabase if configured
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase!.from('active_carts').select('items').eq('id', deviceId).maybeSingle();
+        if (!error && data) {
+          return data.items as OrderItem[];
+        }
+        if (error) {
+          console.warn('Supabase retrieve synced cart error, falling back to Firestore:', error);
+        }
+      } catch (e) {
+        console.warn('Supabase retrieve synced cart exception, falling back to Firestore:', e);
       }
-      return data ? (data.items as OrderItem[]) : null;
-    } catch (e) {
-      console.warn('Error fetching synced cart from Supabase:', e);
-      return null;
     }
+
+    // Fallback to Firestore
+    try {
+      const cartDoc = await getDoc(doc(db, 'active_carts', deviceId));
+      if (cartDoc.exists()) {
+        const data = cartDoc.data();
+        return data.items as OrderItem[];
+      }
+    } catch (e) {
+      console.warn('Firestore retrieve synced cart failed:', e);
+    }
+
+    return null;
   }
 
   static async getAllActiveCarts(): Promise<any[]> {
-    if (!isSupabaseConfigured()) return [];
+    const mergedCartsMap = new Map<string, any>();
+
+    // 1. Fetch from Firestore (extremely reliable, always works)
     try {
-      const { data, error } = await supabase!
-        .from('active_carts')
-        .select('*')
-        .order('updatedAt', { ascending: false });
-      if (error) {
-        console.warn('Failed to retrieve all active carts:', error);
-        return [];
-      }
-      return data || [];
+      const querySnapshot = await getDocs(collection(db, 'active_carts'));
+      querySnapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data && data.items && Array.isArray(data.items) && data.items.length > 0) {
+          mergedCartsMap.set(docSnap.id, {
+            id: docSnap.id,
+            items: data.items,
+            userId: data.userId || null,
+            updatedAt: data.updatedAt || new Date().toISOString(),
+            userName: data.userName || '',
+            userPhone: data.userPhone || ''
+          });
+        }
+      });
     } catch (e) {
-      console.warn('Error fetching all active carts from Supabase:', e);
-      return [];
+      console.warn('Error fetching active carts from Firestore:', e);
     }
+
+    // 2. Fetch from Supabase (if configured)
+    if (isSupabaseConfigured()) {
+      try {
+        const { data, error } = await supabase!
+          .from('active_carts')
+          .select('*')
+          .order('updatedAt', { ascending: false });
+        
+        if (!error && data) {
+          for (const cart of data) {
+            if (cart.items && Array.isArray(cart.items) && cart.items.length > 0) {
+              const existing = mergedCartsMap.get(cart.id);
+              // Only overwrite or add if it doesn't exist or is newer
+              if (!existing || new Date(cart.updatedAt) > new Date(existing.updatedAt)) {
+                mergedCartsMap.set(cart.id, {
+                  id: cart.id,
+                  items: cart.items,
+                  userId: cart.userId || null,
+                  updatedAt: cart.updatedAt || new Date().toISOString(),
+                  userName: cart.userName || existing?.userName || '',
+                  userPhone: cart.userPhone || existing?.userPhone || ''
+                });
+              }
+            }
+          }
+        } else if (error) {
+          console.warn('Supabase fetch active carts error, relying on Firestore:', error);
+        }
+      } catch (e) {
+        console.warn('Supabase fetch active carts exception, relying on Firestore:', e);
+      }
+    }
+
+    // Return merged results sorted by updatedAt descending
+    const allCarts = Array.from(mergedCartsMap.values());
+    allCarts.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return allCarts;
   }
 }
