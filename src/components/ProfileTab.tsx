@@ -55,7 +55,7 @@ export default function ProfileTab({
   onSelectProduct
 }: ProfileTabProps) {
   // Mode control state
-  const [activeSubTab, setActiveSubTab] = useState<'info' | 'recharge' | 'gifts' | 'favorites'>('info');
+  const [activeSubTab, setActiveSubTab] = useState<'info' | 'recharge' | 'gifts' | 'favorites' | 'orders'>('info');
 
   // Edit fields
   const [name, setName] = useState(user.name);
@@ -343,6 +343,15 @@ export default function ProfileTab({
       return;
     }
 
+    // Submit to database so the admin can see and approve the request
+    onSubmitRecharge({
+      senderName,
+      senderAccount: rechargeTransferType === 'kuraimi' ? `كريمي: ${senderAccount}` : `نجم: ${senderAccount}`,
+      amount: rechargeAmount,
+      currency: rechargeCurrency,
+      receiptImage: 'sent_via_whatsapp'
+    });
+
     const transferDetailsText = rechargeTransferType === 'kuraimi'
       ? `🏦 *رقم حساب الكريمي (أو رقم الحوالة):* ${senderAccount}`
       : `⭐ *رقم مرجع حوالة النجم:* ${senderAccount}\n👤 *مستلم حوالات النجم المعتمد:* ${adminSettings.najmReceiverName || 'روح أحمد علي'}`;
@@ -365,6 +374,15 @@ ${transferDetailsText}
     const cleanPhone = adminSettings.whatsappNumber || '967739563915';
     const waUrl = getWhatsAppLink(cleanPhone, messageText);
     window.open(waUrl, '_blank');
+
+    // Show success indicators and clear inputs
+    setRechargeSuccess(true);
+    setSenderName('');
+    setSenderAccount('');
+    setRechargeAmount(0);
+    setReceiptImage('');
+    
+    setTimeout(() => setRechargeSuccess(false), 3500);
   };
 
   // Handle secret 3-clicks unlock
@@ -418,11 +436,11 @@ ${transferDetailsText}
                 {user.isRegistered && Database.getAdminSettings().isEventActive && (
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <div className="bg-emerald-50 dark:bg-emerald-950/25 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30 flex items-center gap-1 text-[10px] font-bold text-emerald-800 dark:text-emerald-400">
-                      <span>صوت سابق:</span>
+                      <span>أصوات الأعضاء:</span>
                       <span className="font-mono text-xs font-black">{myContestantProfile?.greenVotes || 0}</span>
                     </div>
-                    <div className="bg-rose-50 dark:bg-rose-950/25 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/30 flex items-center gap-1 text-[10px] font-bold text-rose-800 dark:text-rose-400">
-                      <span>صوت جديد:</span>
+                    <div className="bg-pink-50 dark:bg-pink-950/25 px-2 py-0.5 rounded-lg border border-pink-100 dark:border-pink-900/30 flex items-center gap-1 text-[10px] font-bold text-pink-800 dark:text-pink-400">
+                      <span>أصدقاء جدد:</span>
                       <span className="font-mono text-xs font-black">{myContestantProfile?.redVotes || 0}</span>
                     </div>
                   </div>
@@ -484,11 +502,11 @@ ${transferDetailsText}
         </div>
 
         {/* Mini Tab Selectors */}
-        <div className="bg-white dark:bg-gray-900 rounded-3xl p-1.5 shadow-sm border border-amber-100/40 dark:border-gray-800 grid grid-cols-4 gap-1">
+        <div className="bg-white dark:bg-gray-900 rounded-3xl p-1.5 shadow-sm border border-amber-100/40 dark:border-gray-800 grid grid-cols-5 gap-1">
           <button
             id="subtab-profile-info"
             onClick={() => setActiveSubTab('info')}
-            className={`py-1 text-[10.5px] text-center font-bold rounded-2xl transition ${
+            className={`py-1 text-[10px] text-center font-bold rounded-2xl transition ${
               activeSubTab === 'info' 
                 ? 'bg-amber-500 text-white shadow' 
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50'
@@ -499,7 +517,7 @@ ${transferDetailsText}
           <button
             id="subtab-profile-recharge"
             onClick={() => setActiveSubTab('recharge')}
-            className={`py-1 text-[10.5px] text-center font-bold rounded-2xl transition ${
+            className={`py-1 text-[10px] text-center font-bold rounded-2xl transition ${
               activeSubTab === 'recharge' 
                 ? 'bg-amber-500 text-white shadow' 
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50'
@@ -510,7 +528,7 @@ ${transferDetailsText}
           <button
             id="subtab-profile-gifts"
             onClick={() => setActiveSubTab('gifts')}
-            className={`py-1 text-[10.5px] text-center font-bold rounded-2xl transition ${
+            className={`py-1 text-[10px] text-center font-bold rounded-2xl transition ${
               activeSubTab === 'gifts' 
                 ? 'bg-amber-500 text-white shadow' 
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50'
@@ -521,13 +539,24 @@ ${transferDetailsText}
           <button
             id="subtab-profile-favorites"
             onClick={() => setActiveSubTab('favorites')}
-            className={`py-1 text-[10.5px] text-center font-bold rounded-2xl transition ${
+            className={`py-1 text-[10px] text-center font-bold rounded-2xl transition ${
               activeSubTab === 'favorites' 
                 ? 'bg-amber-500 text-white shadow' 
                 : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50'
             }`}
           >
-            مفضلتي 💖
+            المفضلة
+          </button>
+          <button
+            id="subtab-profile-orders"
+            onClick={() => setActiveSubTab('orders')}
+            className={`py-1 text-[10px] text-center font-bold rounded-2xl transition ${
+              activeSubTab === 'orders' 
+                ? 'bg-amber-500 text-white shadow' 
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50'
+            }`}
+          >
+            الطلبات 📦
           </button>
         </div>
 
@@ -1005,6 +1034,156 @@ ${transferDetailsText}
                     ))}
                 </div>
               )}
+            </motion.div>
+          )}
+
+          {/* Subtab 5: Active & Past Orders Tracking */}
+          {activeSubTab === 'orders' && (
+            <motion.div
+              key="orders"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              className="bg-white dark:bg-gray-900 rounded-3xl p-5 shadow-sm border border-amber-100/40 dark:border-gray-800 space-y-4 text-right"
+            >
+              <div className="flex justify-between items-center border-b border-amber-100/30 dark:border-gray-800 pb-2">
+                <span className="text-[10px] text-gray-400 font-extrabold">متابعة وتتبع طلباتي السابقة والنشطة</span>
+                <h3 className="text-xs font-extrabold text-amber-950 dark:text-amber-300">
+                  سجل طلباتي 📦
+                </h3>
+              </div>
+
+              {(() => {
+                const userOrders = Database.getOrders()
+                  .filter(o => o.userPhone === user.phone || o.userId === user.id)
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+                if (userOrders.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-gray-400 text-[11px] font-extrabold leading-relaxed">
+                      لا توجد لديكِ أي طلبيات مسجلة حالياً! 🥰 <br/>
+                      تسوقي الآن وأضيفي بعض المنتجات الرائعة إلى سلتكِ لتجربة جمالكِ مع أم روح.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-6">
+                    {userOrders.map((order) => {
+                      const trackingSteps = [
+                        { id: 'pending', label: 'في الانتظار', desc: 'بانتظار الموافقة' },
+                        { id: 'approved', label: 'تمت الموافقة', desc: 'تم قبول الطلبية' },
+                        { id: 'preparing', label: 'قيد التجهيز', desc: 'يجري تحضير الطلب' },
+                        { id: 'shipping', label: 'في الطريق', desc: 'مع مندوب التوصيل' },
+                        { id: 'completed', label: 'تم التسليم', desc: 'استلمتِ طلبيتكِ' }
+                      ];
+
+                      const currentStepIdx = trackingSteps.findIndex(s => s.id === order.status);
+                      const isCanceled = order.status === 'canceled';
+
+                      return (
+                        <div key={order.id} className="border border-amber-100/50 dark:border-gray-800 rounded-2xl p-4 bg-gray-50/35 dark:bg-gray-950/20 space-y-4">
+                          {/* Order Card Header */}
+                          <div className="flex justify-between items-start border-b border-gray-100 dark:border-gray-800/40 pb-2 gap-2">
+                            <div className="text-left">
+                              <span className="text-[9px] text-gray-400 block">الإجمالي الكلي:</span>
+                              <span className="text-xs font-black text-amber-900 dark:text-amber-400">{order.totalAmount} {getCurrencyCode(order.currency)}</span>
+                            </div>
+                            <div className="text-right">
+                              <div className="flex items-center gap-1.5 justify-end">
+                                <span className="text-[10px] font-black text-amber-950 dark:text-white bg-amber-500/5 px-2 py-0.5 rounded-md">#{order.id.slice(-6).toUpperCase()}</span>
+                                <span className="text-[9px] text-gray-400 font-extrabold">رقم الطلب</span>
+                              </div>
+                              <span className="text-[9px] text-gray-400 block mt-0.5" dir="ltr">{new Date(order.createdAt).toLocaleDateString('ar-YE', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                            </div>
+                          </div>
+
+                          {/* Stepped Progress Tracker */}
+                          {!isCanceled ? (
+                            <div className="py-2">
+                              {/* Desktop/Tablet Stepper: Horizontal */}
+                              <div className="relative flex justify-between items-center w-full px-2">
+                                {/* Connection line back-rail */}
+                                <div className="absolute top-1/2 left-0 right-0 h-1 bg-gray-200 dark:bg-gray-800 -translate-y-1/2 rounded-full z-0" />
+                                
+                                {/* Connection line active progress */}
+                                <div 
+                                  className="absolute top-1/2 right-0 h-1 bg-gradient-to-l from-amber-500 to-amber-600 -translate-y-1/2 rounded-full z-0 transition-all duration-500"
+                                  style={{ 
+                                    width: `${(Math.max(0, currentStepIdx) / (trackingSteps.length - 1)) * 100}%`,
+                                    right: 0,
+                                    left: 'auto'
+                                  }}
+                                />
+
+                                {trackingSteps.map((step, idx) => {
+                                  const isCompleted = idx < currentStepIdx;
+                                  const isActive = idx === currentStepIdx;
+                                  const isUpcoming = idx > currentStepIdx;
+
+                                  return (
+                                    <div key={step.id} className="flex flex-col items-center z-10 relative">
+                                      {/* Indicator Circle */}
+                                      <div 
+                                        className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-[10px] transition-all duration-300 ${
+                                          isCompleted 
+                                            ? 'bg-amber-500 text-white shadow-xs' 
+                                            : isActive 
+                                              ? 'bg-amber-600 text-white ring-4 ring-amber-500/20 animate-pulse' 
+                                              : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600'
+                                        }`}
+                                      >
+                                        {isCompleted ? '✓' : idx + 1}
+                                      </div>
+                                      
+                                      {/* Label */}
+                                      <span className={`text-[8.5px] font-black mt-1.5 transition-colors ${
+                                        isActive 
+                                          ? 'text-amber-800 dark:text-amber-400' 
+                                          : isCompleted 
+                                            ? 'text-amber-900/70 dark:text-amber-300/70' 
+                                            : 'text-gray-400'
+                                      }`}>
+                                        {step.label}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <p className="text-[10px] text-center font-bold text-amber-700 dark:text-amber-400 mt-3.5 bg-amber-500/5 dark:bg-amber-500/10 py-1.5 px-3 rounded-xl border border-amber-500/10">
+                                📣 الحالة الحالية: <span className="underline">{trackingSteps[currentStepIdx]?.desc || 'معالجة الطلب'}</span>
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 p-3 rounded-xl text-center text-[10.5px] font-black border border-red-200/50 dark:border-red-900/30">
+                              ⚠️ تم إلغاء هذه الطلبية من قبل الإدارة. يرجى التواصل مع مستشارتنا روح لأي استفسارات!
+                            </div>
+                          )}
+
+                          {/* Ordered Items Accordion-like layout */}
+                          <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-amber-100/15">
+                            <span className="text-[9.5px] text-gray-400 font-extrabold block mb-2">الأصناف المطلوبة بداخل الشحنة:</span>
+                            <div className="space-y-2">
+                              {order.items.map((item, index) => (
+                                <div key={index} className="flex gap-2.5 items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <img src={item.image} alt={item.productName} className="w-8 h-8 rounded-lg object-cover bg-gray-50 shrink-0" />
+                                    <div className="text-right min-w-0">
+                                      <h4 className="text-[10.5px] font-extrabold text-gray-800 dark:text-white truncate max-w-[150px]">{item.productName}</h4>
+                                      <span className="text-[8.5px] text-gray-400 font-bold block">الكمية: {item.quantity} | {Object.entries(item.selectedProperties || {}).map(([k,v]) => `${k}:${v}`).join(' - ')}</span>
+                                    </div>
+                                  </div>
+                                  <span className="text-[10.5px] font-black text-amber-800 dark:text-amber-400 shrink-0">{item.totalPrice} {getCurrencyCode(order.currency)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </motion.div>
           )}
         </AnimatePresence>

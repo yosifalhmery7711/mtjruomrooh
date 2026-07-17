@@ -40,6 +40,7 @@ interface HomeTabProps {
   onSelectProduct: (product: Product) => void;
   onOpenAdvisorChat: () => void;
   tickerTexts?: string[];
+  isLoading?: boolean;
 }
 
 export default function HomeTab({
@@ -51,7 +52,8 @@ export default function HomeTab({
   offerImages,
   onSelectProduct,
   onOpenAdvisorChat,
-  tickerTexts = []
+  tickerTexts = [],
+  isLoading = false
 }: HomeTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCatId, setSelectedCatId] = useState<string>('ALL');
@@ -149,6 +151,84 @@ export default function HomeTab({
       p.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  if (isLoading) {
+    return (
+      <div className="bg-amber-50/20 dark:bg-gray-950 min-h-screen pb-32 pt-5" dir="rtl">
+        <div className="max-w-md mx-auto px-4 space-y-6">
+          
+          {/* Skeleton Slider Carousel Placeholder */}
+          <div className="relative h-44 rounded-[28px] overflow-hidden bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800">
+            <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-transparent" />
+            <div className="absolute bottom-6 right-5 left-5 z-20 space-y-2">
+              <div className="h-3 w-16 bg-gray-300 dark:bg-gray-850 rounded-md" />
+              <div className="h-4.5 w-1/2 bg-gray-300 dark:bg-gray-850 rounded-md" />
+              <div className="h-3.5 w-1/3 bg-gray-300 dark:bg-gray-850 rounded-md" />
+            </div>
+            {/* Slider Dots */}
+            <div className="absolute bottom-3.5 left-0 right-0 flex justify-center gap-1.5 z-20">
+              {[1, 2, 3].map((_, i) => (
+                <div key={i} className={`w-2 h-2 rounded-full ${i === 0 ? 'bg-amber-500 w-4' : 'bg-gray-350 dark:bg-gray-800'}`} />
+              ))}
+            </div>
+          </div>
+
+          {/* Skeleton News Ticker */}
+          <div className="w-full h-8 rounded-xl bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800" />
+
+          {/* Skeleton Search & Featured Items Box Side-by-Side */}
+          <div className="flex gap-2.5 items-center w-full">
+            <div className="w-1/2 h-[41px] rounded-2xl bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800" />
+            <div className="w-1/2 h-[41px] rounded-2xl bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800" />
+          </div>
+
+          {/* Skeleton Advisor Banner */}
+          <div className="w-full h-20 rounded-[26px] bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800 flex justify-between items-center px-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gray-350 dark:bg-gray-800" />
+              <div className="space-y-2">
+                <div className="h-3 w-20 bg-gray-350 dark:bg-gray-800 rounded-md" />
+                <div className="h-4 w-32 bg-gray-350 dark:bg-gray-800 rounded-md" />
+              </div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-gray-350 dark:bg-gray-800" />
+          </div>
+
+          {/* Skeleton Categories Bar */}
+          <div className="space-y-2 text-right">
+            <div className="h-4 w-28 bg-gray-200 dark:bg-gray-900 rounded-md animate-pulse ml-auto" />
+            <div className="flex gap-2 overflow-hidden">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="px-10 py-4.5 rounded-xl bg-gray-200 dark:bg-gray-900 animate-pulse border border-gray-150 dark:border-gray-800 shrink-0" />
+              ))}
+            </div>
+          </div>
+
+          {/* Skeleton Products Grid */}
+          <div className="space-y-3">
+            <div className="flex justify-between items-baseline border-b border-amber-100/40 dark:border-gray-800 pb-1.5">
+              <div className="h-4 w-36 bg-gray-200 dark:bg-gray-900 rounded-md animate-pulse ml-auto" />
+              <div className="h-3 w-16 bg-gray-200 dark:bg-gray-900 rounded-md animate-pulse" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden border border-amber-100/10 dark:border-gray-800/40 flex flex-col text-right">
+                  <div className="h-32 w-full bg-gray-250 dark:bg-gray-850 animate-pulse" />
+                  <div className="p-3.5 flex-1 flex flex-col space-y-2">
+                    <div className="h-3 w-12 bg-gray-200 dark:bg-gray-800 rounded-md animate-pulse ml-auto" />
+                    <div className="h-4 w-5/6 bg-gray-200 dark:bg-gray-800 rounded-md animate-pulse ml-auto" />
+                    <div className="h-3.5 w-16 bg-gray-200 dark:bg-gray-800 rounded-md animate-pulse ml-auto mt-2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-amber-50/20 dark:bg-gray-950 min-h-screen pb-32 pt-5">

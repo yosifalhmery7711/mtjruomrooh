@@ -51,7 +51,9 @@ import {
   Contestant,
   ArchivedEvent,
   AppNotification,
-  VoteLog
+  VoteLog,
+  OrderStatus,
+  OrderItem
 } from '../types';
 import { Database } from '../Database';
 import { convertPrice, getCurrencySymbol, getCurrencyCode, formatArabicDate, getDirectImageUrl, playNotificationSound } from '../utils';
@@ -91,7 +93,7 @@ interface AdminPanelProps {
   adminRole: 'full' | 'worker';
 }
 
-type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications' | 'archives' | 'reversions';
+type AdminTab = 'settings' | 'categories' | 'products' | 'offers' | 'users' | 'gifts' | 'new-orders' | 'sent-orders' | 'recharges' | 'locations' | 'reports' | 'database' | 'events' | 'notifications' | 'archives' | 'reversions' | 'active-carts';
 
 export default function AdminPanel({
   onClose,
@@ -178,6 +180,28 @@ export default function AdminPanel({
 
   // Archived Events State
   const [archivedEvents, setArchivedEvents] = useState<ArchivedEvent[]>(() => Database.getArchivedEvents());
+  
+  // Active Client Carts State
+  const [activeCarts, setActiveCarts] = useState<any[]>([]);
+  const [isLoadingCarts, setIsLoadingCarts] = useState(false);
+
+  const fetchActiveCarts = async () => {
+    setIsLoadingCarts(true);
+    try {
+      const carts = await Database.getAllActiveCarts();
+      setActiveCarts(carts);
+    } catch (e) {
+      console.error('Failed to fetch active carts:', e);
+    } finally {
+      setIsLoadingCarts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'active-carts') {
+      fetchActiveCarts();
+    }
+  }, [activeTab]);
   const [newArchivedEventName, setNewArchivedEventName] = useState('');
   const [newArchivedEventWinner, setNewArchivedEventWinner] = useState('');
   const [newArchivedEventAmount, setNewArchivedEventAmount] = useState<number>(0);
@@ -607,6 +631,8 @@ export default function AdminPanel({
   const [kuraimiAccountNumber, setKuraimiAccountNumber] = useState(adminSettingsObj.kuraimiAccountNumber || '967739563915');
   const [najmReceiverName, setNajmReceiverName] = useState(adminSettingsObj.najmReceiverName || 'روح أحمد علي');
   const [featuredSpeed, setFeaturedSpeed] = useState<number>(adminSettingsObj.featuredSpeed || 3);
+  const [packageName, setPackageName] = useState(adminSettingsObj.packageName || 'com.ruh.store');
+  const [sha256Fingerprint, setSha256Fingerprint] = useState(adminSettingsObj.sha256Fingerprint || '33:4B:9C:E3:6B:42:0E:64:1B:11:D3:FC:B5:72:0D:20:9B:6C:EE:80:C2:5E:28:FE:8B:D8:1A:1D:95:C7:E2:E8');
 
   // Exchange rates configuration
   const [yerOldFactor, setYerOldFactor] = useState(rates.yerOldFactor);
@@ -633,6 +659,8 @@ export default function AdminPanel({
       kuraimiAccountNumber: kuraimiAccountNumber.trim(),
       najmReceiverName: najmReceiverName.trim(),
       featuredSpeed: Number(featuredSpeed),
+      packageName: packageName.trim(),
+      sha256Fingerprint: sha256Fingerprint.trim(),
       googleBackupActive: typeof currentAdminSettings.googleBackupActive === 'boolean' ? currentAdminSettings.googleBackupActive : Database.isBackupMode(),
       googleScriptUrl: currentAdminSettings.googleScriptUrl || Database.getGoogleScriptUrl()
     };
@@ -1837,19 +1865,29 @@ export default function AdminPanel({
   // ----------------------------------------------------
   // --- TAB 7: NEW ORDERS MANAGER ---
   const [activeOrderForPdf, setActiveOrderForPdf] = useState<Order | null>(null);
+  const [adminOrderSubTab, setAdminOrderSubTab] = useState<'pending' | 'approved' | 'preparing' | 'shipping'>('pending');
 
   const pendingOrders = orders.filter(o => o.status === 'pending');
+  const activeOrdersCount = orders.filter(o => ['pending', 'approved', 'preparing', 'shipping'].includes(o.status)).length;
 
-  const handleApproveOrder = (orderId: string) => {
-    Database.updateOrderStatus(orderId, 'completed');
-    showToast('تم اعتماد الفاتورة وتوصيل الطلب بنجاح! 🚚');
+  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
+    Database.updateOrderStatus(orderId, status);
+    let msg = 'تم تحديث حالة الطلبية بنجاح!';
+    if (status === 'approved') msg = 'تم قبول واعتماد الفاتورة بنجاح! 👍';
+    if (status === 'preparing') msg = 'بدأ الآن تجهيز الطلبية في المستودع! 🛠️';
+    if (status === 'shipping') msg = 'تم تسليم الطلبية للمندوب وانطلقت للشحن! 🚚';
+    if (status === 'completed') msg = 'تم تأكيد تسليم الشحنة للعميل بنجاح! ✅';
+    if (status === 'canceled') msg = 'تم إلغاء الطلبية وتنبيه العميلة بنجاح ❌';
+    showToast(msg);
     reloadData();
   };
 
+  const handleApproveOrder = (orderId: string) => {
+    handleUpdateOrderStatus(orderId, 'completed');
+  };
+
   const handleCancelOrder = (orderId: string) => {
-    Database.updateOrderStatus(orderId, 'canceled');
-    showToast('تم إلغاء الطلبية وتنبيه العميلة.');
-    reloadData();
+    handleUpdateOrderStatus(orderId, 'canceled');
   };
 
   const handlePrintOrderInvoice = (order: Order) => {
@@ -2125,7 +2163,8 @@ export default function AdminPanel({
             { id: 'users', label: 'قاعدة بيانات العملاء', icon: DbIcon, badge: undefined },
             { id: 'gifts', label: 'هدايا أم روح', icon: Gift, badge: undefined },
             { id: 'reversions', label: 'مراجعة وتراجع الأخطاء 🔄', icon: RefreshCw, badge: undefined },
-            { id: 'new-orders', label: 'الطلبات الجديدة', icon: FileText, badge: pendingOrders.length },
+            { id: 'new-orders', label: 'الطلبات النشطة 📦', icon: FileText, badge: activeOrdersCount },
+            { id: 'active-carts', label: 'السلل النشطة للعملاء 🛒', icon: ShoppingBag, badge: undefined },
             { id: 'sent-orders', label: 'الطلبات المرسلة', icon: Truck, badge: undefined },
             { id: 'recharges', label: 'شحن رصيدي', icon: DollarSign, badge: pendingRecharges.length },
             { id: 'reports', label: 'تقارير الشحن والسداد 📊', icon: TrendingUp, badge: undefined },
@@ -2598,6 +2637,41 @@ export default function AdminPanel({
                     />
                     <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
                       💡 ضعي هنا الرابط الجديد الذي تم نشره على Vercel، وسيقوم التطبيق بتحويل جميع المستخدمين تلقائياً وبشكل صامت إلى التحديث الجديد فور تشغيل التطبيق دون الحاجة لتنزيل ملف APK جديد! اتركيه فارغاً لتعطيل الميزة.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Android TWA Integration Settings */}
+                <div className="border-t border-dashed border-amber-100 dark:border-gray-800 pt-4 space-y-3 text-right">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded-full font-mono">
+                      assetlinks.json 🤖
+                    </span>
+                    <h4 className="text-xs font-extrabold text-amber-950 dark:text-amber-300">إعدادات إخفاء شريط العنوان في تطبيق الاندرويد (TWA)</h4>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] text-gray-500 font-bold block mb-1">اسم الحزمة للتطبيق (Package Name):</label>
+                      <input
+                        type="text"
+                        value={packageName}
+                        onChange={(e) => setPackageName(e.target.value)}
+                        placeholder="مثال: com.ruh.store"
+                        className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-semibold text-left font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500 font-bold block mb-1">بصمة التوقيع الرقمي (SHA-256 Certificate Fingerprint):</label>
+                      <input
+                        type="text"
+                        value={sha256Fingerprint}
+                        onChange={(e) => setSha256Fingerprint(e.target.value)}
+                        placeholder="بصمة SHA-256 للتوقيع الرقمي..."
+                        className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-[10px] font-semibold text-left font-mono"
+                      />
+                    </div>
+                    <p className="text-[9px] text-gray-400 dark:text-gray-500 mt-1 leading-relaxed">
+                      💡 هذه الإعدادات تُستخدم لتوليد ملف التحقق الذكي بشكل ديناميكي لتطبيق الأندرويد لكي يتم تصفح المتجر من داخل التطبيق كشاشة كاملة وبدون ظهور شريط متصفح الكروم العلوي المزعج.
                     </p>
                   </div>
                 </div>
@@ -4140,172 +4214,362 @@ export default function AdminPanel({
           {/* 7. NEW ORDERS */}
           {activeTab === 'new-orders' && (
             <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-amber-100/40 dark:border-gray-800 shadow-sm space-y-6">
-              <h3 className="text-xs font-black text-amber-950 dark:text-amber-300 border-b border-amber-50 dark:border-gray-800 pb-2 text-right">
-                جدول طلبات التوصيل الجديدة الواردة من العملاء
-              </h3>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-amber-50 dark:border-gray-800 pb-4 gap-3 text-right">
+                <span className="text-[10px] text-gray-400 font-extrabold order-2 md:order-1">نظام التتبع المتكامل للطلبيات والتحكم بحالة الشحنة</span>
+                <h3 className="text-xs font-black text-amber-950 dark:text-amber-300 order-1 md:order-2">
+                  لوحة التحكم بالطلبيات النشطة والجديدة 📦
+                </h3>
+              </div>
 
-              {pendingOrders.length === 0 ? (
-                <div className="text-center py-10 text-gray-400 text-xs font-bold">لا يوجد أي طلبات جديدة معلقة حالياً.</div>
-              ) : (
-                <div className="space-y-5">
-                  {pendingOrders.map(order => (
-                    <div key={order.id} className="border border-amber-100/50 dark:border-gray-800 rounded-3xl p-5 bg-gray-50/50 dark:bg-gray-800/40 text-right space-y-4">
-                      {/* Order info bar */}
-                      <div className="flex justify-between items-center border-b pb-2">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            id={`print-inv-${order.id}`}
-                            onClick={() => handlePrintOrderInvoice(order)}
-                            className="p-1.5 bg-white hover:bg-gray-100 text-gray-500 rounded-lg shadow-sm border transition"
-                            title="عرض وطباعة كـ PDF"
-                          >
-                            <Printer className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-[10px] text-gray-400 font-extrabold block">رقم الطلبية المرجعي:</span>
-                          <span className="text-xs font-black text-amber-900 dark:text-amber-300">{order.id}</span>
-                        </div>
+              {/* Order Status Sub-Tabs / Steps Selection */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-gray-950/20 p-1.5 rounded-2xl border border-amber-100/10">
+                {[
+                  { id: 'pending', label: '📥 في الانتظار', badge: orders.filter(o => o.status === 'pending').length, desc: 'الطلبات الجديدة المعلقة' },
+                  { id: 'approved', label: '👍 تمت الموافقة', badge: orders.filter(o => o.status === 'approved').length, desc: 'الطلبات المعتمدة مالياً' },
+                  { id: 'preparing', label: '🛠️ قيد التجهيز', badge: orders.filter(o => o.status === 'preparing').length, desc: 'التجميع والتغليف بالمخزن' },
+                  { id: 'shipping', label: '🚚 في الطريق', badge: orders.filter(o => o.status === 'shipping').length, desc: 'المرسلة مع المندوبين' }
+                ].map((subTab) => {
+                  const isActive = adminOrderSubTab === subTab.id;
+                  return (
+                    <button
+                      key={subTab.id}
+                      onClick={() => setAdminOrderSubTab(subTab.id as any)}
+                      className={`py-2 px-3 rounded-xl transition flex flex-col items-center justify-center text-center gap-1 border ${
+                        isActive 
+                          ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                          : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-100 dark:border-gray-800 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 justify-center">
+                        {subTab.badge > 0 && (
+                          <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white text-amber-600' : 'bg-red-500 text-white'}`}>
+                            {subTab.badge}
+                          </span>
+                        )}
+                        <span className="text-[10.5px] font-black">{subTab.label}</span>
                       </div>
+                      <span className={`text-[8.5px] ${isActive ? 'text-amber-100' : 'text-gray-400'}`}>
+                        {subTab.desc}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-                      {/* Customer details info */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-white dark:bg-gray-900 p-3 rounded-2xl border">
-                        <div>
-                          <span className="text-[9px] text-gray-400 block">اسم العميلة:</span>
-                          <span className="font-extrabold">{order.userName}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] text-gray-400 block">رقم الجوال:</span>
-                          <span className="font-semibold" dir="ltr">{order.userPhone}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-[9px] text-gray-400 block">عنوان التوصيل:</span>
-                          <span className="font-bold">{order.address}</span>
-                        </div>
-                      </div>
+              {(() => {
+                const filteredOrders = orders.filter(o => o.status === adminOrderSubTab);
 
-                      {/* Purchased products queue */}
-                      <div className="space-y-2.5">
-                        <span className="text-[10px] font-black text-gray-400 block">المنتجات المطلوبة في الفاتورة:</span>
-                        <div className="space-y-2">
-                          {order.items.map((it, idx) => (
-                            <div key={idx} className="flex gap-3 bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-amber-100/10">
-                              <img src={it.image} alt={it.productName} className="w-10 h-10 rounded-xl object-cover" />
-                              <div className="flex-1 text-right min-w-0">
-                                <h4 className="text-xs font-extrabold text-gray-900 dark:text-white truncate">{it.productName}</h4>
-                                <span className="text-[9px] text-gray-400 font-extrabold bg-amber-500/5 px-2 py-0.5 rounded-md mt-1 inline-block">
-                                  رمز الصنف (للإدارة): {it.productCode}
-                                </span>
+                if (filteredOrders.length === 0) {
+                  return (
+                    <div className="text-center py-14 text-gray-400 text-xs font-black leading-relaxed">
+                      🏖️ لا توجد أي طلبيات في مرحلة [ {
+                        adminOrderSubTab === 'pending' ? 'في الانتظار' :
+                        adminOrderSubTab === 'approved' ? 'الموافقة المبدئية' :
+                        adminOrderSubTab === 'preparing' ? 'التجهيز والتحضير' : 'الشحن والتوصيل'
+                      } ] حالياً!
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-6">
+                    {filteredOrders.map(order => (
+                      <div key={order.id} className="border border-amber-100/50 dark:border-gray-800 rounded-3xl p-5 bg-gray-50/50 dark:bg-gray-800/40 text-right space-y-4">
+                        {/* Order info bar */}
+                        <div className="flex justify-between items-center border-b pb-2">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              id={`print-inv-${order.id}`}
+                              onClick={() => handlePrintOrderInvoice(order)}
+                              className="p-1.5 bg-white hover:bg-gray-100 text-gray-500 rounded-lg shadow-sm border transition"
+                              title="عرض وطباعة كـ PDF"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="text-[10px] text-gray-400 font-extrabold block">رقم الطلبية المرجعي:</span>
+                            <span className="text-xs font-black text-amber-900 dark:text-amber-300">#{order.id.slice(-8).toUpperCase()} <span className="text-[9px] text-gray-400 font-medium">({order.id})</span></span>
+                          </div>
+                        </div>
+
+                        {/* Customer details info */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-white dark:bg-gray-900 p-3 rounded-2xl border">
+                          <div>
+                            <span className="text-[9px] text-gray-400 block">اسم العميلة:</span>
+                            <span className="font-extrabold">{order.userName}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-gray-400 block">رقم الجوال:</span>
+                            <span className="font-semibold" dir="ltr">{order.userPhone}</span>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-[9px] text-gray-400 block">عنوان التوصيل:</span>
+                            <span className="font-bold">{order.address}</span>
+                          </div>
+                        </div>
+
+                        {/* Purchased products queue */}
+                        <div className="space-y-2.5">
+                          <span className="text-[10px] font-black text-gray-400 block">المنتجات المطلوبة في الفاتورة:</span>
+                          <div className="space-y-2">
+                            {order.items.map((it, idx) => (
+                              <div key={idx} className="flex gap-3 bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-amber-100/10">
+                                <img src={it.image} alt={it.productName} className="w-10 h-10 rounded-xl object-cover" />
+                                <div className="flex-1 text-right min-w-0">
+                                  <h4 className="text-xs font-extrabold text-gray-900 dark:text-white truncate">{it.productName}</h4>
+                                  <span className="text-[9px] text-gray-400 font-extrabold bg-amber-500/5 px-2 py-0.5 rounded-md mt-1 inline-block">
+                                    رمز الصنف (للإدارة): {it.productCode}
+                                  </span>
+                                  
+                                  {Object.keys(it.selectedProperties || {}).length > 0 && (
+                                    <div className="flex gap-1 flex-wrap mt-1">
+                                      {Object.entries(it.selectedProperties).map(([k,v]) => (
+                                        <span key={k} className="text-[8px] bg-amber-500/10 text-amber-800 px-1 py-0.5 rounded font-bold">
+                                          {k}: {v}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="shrink-0 text-left">
+                                  <span className="text-[10px] font-bold text-gray-400 block">الكمية: {it.quantity}</span>
+                                  <span className="text-xs font-black text-amber-800">{it.totalPrice} {getCurrencyCode(order.currency)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Deposit proof and actions */}
+                        <div className="flex flex-col md:flex-row justify-between items-end gap-3 pt-3 border-t">
+                          <div className="text-right space-y-1">
+                            <span className="text-[10px] text-gray-400 block">سعر الفاتورة الإجمالي المطلوب:</span>
+                            <span className="text-sm font-black text-amber-800">{order.totalAmount} {getCurrencyCode(order.currency)}</span>
+                            
+                            {/* Payment details */}
+                            <div className="space-y-1 mt-1 text-right">
+                              <span className="text-[10px] text-gray-400 block">طريقة السداد وتفاصيل الدفع:</span>
+                              <div className="flex flex-wrap gap-1.5 items-center justify-start md:justify-end">
+                                {order.paymentMethod === 'gift_wallet' && (
+                                  <span className="bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                    🎁 خصم من هدايا أم روح
+                                  </span>
+                                )}
+                                {order.paymentMethod === 'recharge_wallet' && (
+                                  <span className="bg-blue-100 text-blue-800 dark:bg-blue-500/10 dark:text-blue-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                    💳 سداد من الرصيد المشحون (المحفظة)
+                                  </span>
+                                )}
+                                {order.paymentMethod === 'al_kuraimi' && (
+                                  <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                    🏦 حوالة بنك الكريمي
+                                  </span>
+                                )}
+                                {order.paymentMethod === 'najm' && (
+                                  <span className="bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
+                                    💸 شبكة النجم للتحويلات
+                                  </span>
+                                )}
                                 
-                                {Object.keys(it.selectedProperties).length > 0 && (
-                                  <div className="flex gap-1 flex-wrap mt-1">
-                                    {Object.entries(it.selectedProperties).map(([k,v]) => (
-                                      <span key={k} className="text-[8px] bg-amber-500/10 text-amber-800 px-1 py-0.5 rounded font-bold">
-                                        {k}: {v}
-                                      </span>
-                                    ))}
-                                  </div>
+                                {order.checkoutVia === 'whatsapp' && (
+                                  <span className="bg-emerald-600 text-white font-extrabold px-2.5 py-1 rounded-lg text-[9.5px] shadow-xs flex items-center gap-1">
+                                    <span>📲</span>
+                                    <span>مكتمل عبر واتساب</span>
+                                  </span>
                                 )}
                               </div>
-
-                              <div className="shrink-0 text-left">
-                                <span className="text-[10px] font-bold text-gray-400 block">الكمية: {it.quantity}</span>
-                                <span className="text-xs font-black text-amber-800">{it.totalPrice} {getCurrencyCode(order.currency)}</span>
-                              </div>
+                              
+                              {(order.paymentMethod === 'al_kuraimi' || order.paymentMethod === 'najm') && (
+                                <p className="text-[10.5px] font-bold text-gray-700 dark:text-gray-300 mt-1">
+                                  اسم المرسل: <span className="text-amber-800 dark:text-amber-300">{order.senderName}</span>
+                                  {order.senderAccount && <> | الحساب/المرجع: <span className="text-amber-800 dark:text-amber-300">{order.senderAccount}</span></>}
+                                </p>
+                              )}
                             </div>
-                          ))}
+                          </div>
+
+                          {/* Display receipt if exists */}
+                          {order.receiptImage && (
+                            <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border">
+                              {order.receiptImage.startsWith('data:') ? (
+                                <img src={order.receiptImage} alt="وثيقة إيداع" className="w-12 h-12 object-cover rounded-lg border cursor-pointer" onClick={() => {
+                                  const win = window.open();
+                                  if (win) win.document.write(`<img src="${order.receiptImage}" />`);
+                                }} />
+                              ) : (
+                                <div className="w-12 h-12 flex flex-col items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 text-[8px] font-bold text-center leading-tight p-1 shrink-0">
+                                  <span>📲</span>
+                                  <span>مرسل واتساب</span>
+                                </div>
+                              )}
+                              <span className="text-[9px] font-bold text-gray-400 px-2">وثيقة الإيداع</span>
+                            </div>
+                          )}
+
+                          {/* Action Buttons with Multi-stage tracking flow */}
+                          <div className="flex gap-2">
+                            <button
+                              id={`cancel-order-${order.id}`}
+                              onClick={() => handleUpdateOrderStatus(order.id, 'canceled')}
+                              className="bg-red-50 text-red-600 hover:bg-red-500 hover:text-white border border-red-200 text-[10px] font-black py-2 px-3.5 rounded-xl shadow-xs transition"
+                            >
+                              إلغاء ورفض الطلب ❌
+                            </button>
+                            
+                            {adminOrderSubTab === 'pending' && (
+                              <button
+                                id={`approve-order-${order.id}`}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'approved')}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black py-2.5 px-4 rounded-xl shadow-md transition flex items-center gap-1 animate-pulse"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>قبول واعتماد الفاتورة 👍</span>
+                              </button>
+                            )}
+
+                            {adminOrderSubTab === 'approved' && (
+                              <button
+                                id={`prepare-order-${order.id}`}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black py-2.5 px-4 rounded-xl shadow-md transition flex items-center gap-1"
+                              >
+                                <span>🛠️ بدء التجهيز في المخزن</span>
+                              </button>
+                            )}
+
+                            {adminOrderSubTab === 'preparing' && (
+                              <button
+                                id={`ship-order-${order.id}`}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'shipping')}
+                                className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black py-2.5 px-4 rounded-xl shadow-md transition flex items-center gap-1"
+                              >
+                                <span>🚚 تسليم المندوب (شحن)</span>
+                              </button>
+                            )}
+
+                            {adminOrderSubTab === 'shipping' && (
+                              <button
+                                id={`complete-order-${order.id}`}
+                                onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black py-2.5 px-4 rounded-xl shadow-md transition flex items-center gap-1"
+                              >
+                                <span>✅ تأكيد استلام العميل</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
-                      {/* Deposit proof and actions */}
-                      <div className="flex flex-col md:flex-row justify-between items-end gap-3 pt-3 border-t">
-                        <div className="text-right space-y-1">
-                          <span className="text-[10px] text-gray-400 block">سعر الفاتورة الإجمالي المطلوب:</span>
-                          <span className="text-sm font-black text-amber-800">{order.totalAmount} {getCurrencyCode(order.currency)}</span>
+          {/* ACTIVE CARTS MONITOR */}
+          {activeTab === 'active-carts' && (
+            <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl border border-amber-100/40 dark:border-gray-800 shadow-sm space-y-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-amber-50 dark:border-gray-800 pb-4 gap-3 text-right">
+                <button
+                  onClick={fetchActiveCarts}
+                  disabled={isLoadingCarts}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white text-[11px] font-black rounded-xl shadow-xs transition flex items-center gap-1.5 order-2 md:order-1"
+                >
+                  <span>{isLoadingCarts ? 'جاري التحديث... ⏳' : 'تحديث البيانات 🔄'}</span>
+                </button>
+                <div className="order-1 md:order-2">
+                  <h3 className="text-xs font-black text-amber-950 dark:text-amber-300">
+                    مراقبة سلل التسوق النشطة للعملاء حالياً 🛒
+                  </h3>
+                  <p className="text-[10px] text-gray-400 font-extrabold mt-1">
+                    تتبع عربات وسلل تسوق المشتريات المفتوحة في الوقت الفعلي عبر قاعدة بيانات السحابة
+                  </p>
+                </div>
+              </div>
+
+              {isLoadingCarts ? (
+                <div className="text-center py-20 text-gray-400 font-bold text-xs">
+                  <div className="animate-spin w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+                  جاري جلب سلل التسوق النشطة من السحابة...
+                </div>
+              ) : activeCarts.length === 0 ? (
+                <div className="text-center py-16 text-gray-400 text-xs font-black leading-relaxed">
+                  🏖️ لا توجد أي سلل تسوق نشطة مسجلة في السحابة حالياً! <br/>
+                  سيبدأ النظام تلقائياً بتتبع سلل العميلات فور إضافتهن لمنتجات بداخل عربة التسوق.
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {activeCarts.map((cart, idx) => {
+                    const cartUser = users.find(u => u.id === cart.userId);
+                    const itemsList = (cart.items || []) as OrderItem[];
+                    
+                    // Calculate total cart value
+                    const cartTotal = itemsList.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+
+                    return (
+                      <div key={cart.id || idx} className="border border-amber-100/50 dark:border-gray-800 rounded-3xl p-5 bg-gray-50/50 dark:bg-gray-800/40 text-right space-y-4">
+                        {/* Cart Meta Header */}
+                        <div className="flex justify-between items-center border-b pb-2.5">
+                          <div className="text-left">
+                            <span className="text-[9px] text-gray-400 block">آخر تحديث للسلة:</span>
+                            <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300" dir="ltr">
+                              {new Date(cart.updatedAt).toLocaleString('ar-YE', { 
+                                hour: '2-digit', 
+                                minute: '2-digit', 
+                                second: '2-digit',
+                                day: 'numeric', 
+                                month: 'short' 
+                              })}
+                            </span>
+                          </div>
                           
-                          {/* Payment details */}
-                          <div className="space-y-1 mt-1 text-right">
-                            <span className="text-[10px] text-gray-400 block">طريقة السداد وتفاصيل الدفع:</span>
-                            <div className="flex flex-wrap gap-1.5 items-center justify-start md:justify-end">
-                              {order.paymentMethod === 'gift_wallet' && (
-                                <span className="bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
-                                  🎁 خصم من هدايا أم روح
-                                </span>
-                              )}
-                              {order.paymentMethod === 'recharge_wallet' && (
-                                <span className="bg-blue-100 text-blue-800 dark:bg-blue-500/10 dark:text-blue-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
-                                  💳 سداد من الرصيد المشحون (المحفظة)
-                                </span>
-                              )}
-                              {order.paymentMethod === 'al_kuraimi' && (
-                                <span className="bg-emerald-100 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
-                                  🏦 حوالة بنك الكريمي
-                                </span>
-                              )}
-                              {order.paymentMethod === 'najm' && (
-                                <span className="bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-300 font-extrabold px-2.5 py-1 rounded-lg text-[9.5px]">
-                                  💸 شبكة النجم للتحويلات
-                                </span>
-                              )}
-                              
-                              {order.checkoutVia === 'whatsapp' && (
-                                <span className="bg-emerald-600 text-white font-extrabold px-2.5 py-1 rounded-lg text-[9.5px] shadow-xs flex items-center gap-1">
-                                  <span>📲</span>
-                                  <span>مكتمل عبر واتساب</span>
-                                </span>
-                              )}
-                            </div>
-                            
-                            {(order.paymentMethod === 'al_kuraimi' || order.paymentMethod === 'najm') && (
-                              <p className="text-[10.5px] font-bold text-gray-700 dark:text-gray-300 mt-1">
-                                اسم المرسل: <span className="text-amber-800 dark:text-amber-300">{order.senderName}</span>
-                                {order.senderAccount && <> | الحساب/المرجع: <span className="text-amber-800 dark:text-amber-300">{order.senderAccount}</span></>}
-                              </p>
+                          <div className="text-right">
+                            <span className="text-[9px] text-gray-400 block">صاحبة السلة / جهاز المتصفح:</span>
+                            <span className="text-xs font-black text-amber-950 dark:text-white">
+                              {cartUser ? `${cartUser.name} (${cartUser.phone})` : 'زائرة مجهولة (جهاز غير مسجل)'}
+                            </span>
+                            <span className="text-[9px] text-gray-400 block mt-0.5" dir="ltr">المعرف: {cart.id}</span>
+                          </div>
+                        </div>
+
+                        {/* Cart items list */}
+                        <div className="space-y-2">
+                          <span className="text-[9.5px] text-gray-400 font-extrabold block">محتويات السلة الحالية:</span>
+                          <div className="space-y-2 bg-white dark:bg-gray-900 rounded-2xl p-3 border">
+                            {itemsList.length === 0 ? (
+                              <span className="text-[10px] text-gray-400 font-bold block text-center py-2">السلة فارغة حالياً.</span>
+                            ) : (
+                              itemsList.map((item, itemIdx) => (
+                                <div key={itemIdx} className="flex gap-3 items-center justify-between text-xs py-1 border-b last:border-b-0">
+                                  <div className="flex items-center gap-2">
+                                    <img src={item.image} alt={item.productName} className="w-8 h-8 rounded-lg object-cover bg-gray-50 shrink-0" />
+                                    <div className="text-right min-w-0">
+                                      <h4 className="text-[11px] font-extrabold text-gray-800 dark:text-white truncate max-w-[200px]">{item.productName}</h4>
+                                      <span className="text-[9px] text-gray-400 font-bold block">الكمية: {item.quantity} | {Object.entries(item.selectedProperties || {}).map(([k,v]) => `${k}:${v}`).join(' - ')}</span>
+                                    </div>
+                                  </div>
+                                  <span className="text-[10.5px] font-black text-amber-800 dark:text-amber-400 shrink-0">{item.totalPrice} ر.ي.ج</span>
+                                </div>
+                              ))
                             )}
                           </div>
                         </div>
 
-                        {/* Display receipt if exists */}
-                        {order.receiptImage && (
-                          <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border">
-                            {order.receiptImage.startsWith('data:') ? (
-                              <img src={order.receiptImage} alt="وثيقة إيداع" className="w-12 h-12 object-cover rounded-lg border cursor-pointer" onClick={() => {
-                                const win = window.open();
-                                if (win) win.document.write(`<img src="${order.receiptImage}" />`);
-                              }} />
-                            ) : (
-                              <div className="w-12 h-12 flex flex-col items-center justify-center bg-emerald-50 text-emerald-600 rounded-lg border border-emerald-100 text-[8px] font-bold text-center leading-tight p-1 shrink-0">
-                                <span>📲</span>
-                                <span>مرسل واتساب</span>
-                              </div>
-                            )}
-                            <span className="text-[9px] font-bold text-gray-400 px-2">وثيقة الإيداع</span>
+                        {/* Total Value */}
+                        {itemsList.length > 0 && (
+                          <div className="flex justify-between items-center bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-2xl border border-amber-500/10">
+                            <span className="text-[10px] text-amber-900 dark:text-amber-400 font-extrabold">القيمة التقريبية لمحتويات السلة:</span>
+                            <span className="text-xs font-black text-amber-800 dark:text-amber-400">
+                              {cartTotal.toLocaleString()} ر.ي.ج
+                            </span>
                           </div>
                         )}
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-2">
-                          <button
-                            id={`cancel-order-${order.id}`}
-                            onClick={() => handleCancelOrder(order.id)}
-                            className="bg-red-500 hover:bg-red-600 text-white text-[10px] font-black py-2 px-3.5 rounded-xl shadow-sm transition"
-                          >
-                            رفض وإلغاء الطلب
-                          </button>
-                          
-                          <button
-                            id={`approve-order-${order.id}`}
-                            onClick={() => handleApproveOrder(order.id)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black py-2.5 px-4 rounded-xl shadow-md transition flex items-center gap-1 animate-pulse"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            <span>موافقة وإرسال الطلبية للعميل</span>
-                          </button>
-                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
