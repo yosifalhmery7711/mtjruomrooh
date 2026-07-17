@@ -2,7 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Load Supabase environment variables
 const initialUrl = import.meta.env.VITE_SUPABASE_URL || 'https://kyvfjiwihwmorddsrbvd.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Q6xbXEplacGjhDbAeZJ5Mw_LoCtnzp1';
 
 let activeUrl = initialUrl;
 let currentClient: SupabaseClient | null = initialUrl && supabaseAnonKey 
