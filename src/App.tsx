@@ -168,6 +168,8 @@ export default function App() {
     }
   });
 
+  const [sharedCartItems, setSharedCartItems] = useState<OrderItem[] | null>(null);
+
   // Keep cart synced to localStorage and Supabase
   useEffect(() => {
     localStorage.setItem('amrwh_cart_items', JSON.stringify(cart));
@@ -558,6 +560,42 @@ export default function App() {
           // clear code parameters from address bar gracefully
           const cleanUrl = window.location.origin + window.location.pathname;
           window.history.replaceState({ activeTab }, document.title, cleanUrl);
+        }
+      }
+
+      // Handle shared cart imports
+      const shareCartParam = params.get('share_cart');
+      if (shareCartParam) {
+        try {
+          const decoded = decodeURIComponent(atob(shareCartParam));
+          const compact = JSON.parse(decoded);
+          const items: OrderItem[] = [];
+          for (const item of compact) {
+            const prod = products.find(p => p.id === item.i);
+            if (prod) {
+              const isOffer = prod.isOnOffer && prod.offerPriceNew;
+              const basePrice = isOffer ? prod.offerPriceNew! : prod.priceYERNew;
+              items.push({
+                productId: prod.id,
+                productName: prod.name,
+                productCode: prod.code,
+                image: prod.images[0] || '',
+                selectedProperties: item.p || {},
+                price: basePrice,
+                currency: 'YER_NEW',
+                quantity: item.q,
+                totalPrice: basePrice * item.q
+              });
+            }
+          }
+          if (items.length > 0) {
+            setSharedCartItems(items);
+          }
+          // clear share_cart parameter gracefully
+          const cleanUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({ activeTab }, document.title, cleanUrl);
+        } catch (e) {
+          console.error("Failed to parse shared cart parameter:", e);
         }
       }
     }
@@ -2315,6 +2353,127 @@ export default function App() {
             </motion.div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* Shared Cart Import Modal */}
+      <AnimatePresence>
+        {sharedCartItems && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/65 dark:bg-black/85 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 text-right"
+            dir="rtl"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 30 }}
+              className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-6 shadow-2xl border border-amber-500/20 max-w-sm w-full space-y-5 relative overflow-hidden"
+            >
+              {/* Top ambient glow */}
+              <div className="absolute top-0 inset-x-0 h-2 bg-gradient-to-l from-amber-400 via-rose-400 to-amber-500" />
+              
+              {/* Close Button X */}
+              <button
+                onClick={() => setSharedCartItems(null)}
+                className="absolute top-4 left-4 w-7 h-7 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 rounded-full flex items-center justify-center text-xs font-bold transition z-10"
+              >
+                ✕
+              </button>
+
+              <div className="text-center space-y-3">
+                <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center text-3xl mx-auto shadow-lg shadow-amber-500/20 animate-bounce">
+                  🛒
+                </div>
+                <h3 className="text-sm font-black text-amber-950 dark:text-amber-300">
+                  سلة تسوق مشتركة من صديقتكِ! 🌸✨
+                </h3>
+                <p className="text-[11.5px] text-gray-500 dark:text-gray-400 leading-relaxed font-bold">
+                  شاركت معكِ إحدى صديقاتكِ سلة تسوق مميزة تحتوي على الأصناف التالية:
+                </p>
+              </div>
+
+              {/* Items List */}
+              <div className="bg-gray-50 dark:bg-gray-950/30 p-3 rounded-2xl border border-gray-100 dark:border-gray-800 max-h-[180px] overflow-y-auto space-y-2.5">
+                {sharedCartItems.map((item, idx) => (
+                  <div key={idx} className="flex gap-2.5 items-center justify-between border-b border-gray-100/40 dark:border-gray-850 pb-2 last:border-0 last:pb-0">
+                    <img
+                      src={item.image}
+                      alt={item.productName}
+                      className="w-10 h-10 rounded-lg object-cover shrink-0 border border-gray-100 dark:border-gray-850"
+                    />
+                    <div className="flex-1 min-w-0 text-right space-y-0.5">
+                      <h5 className="text-[10px] font-extrabold text-gray-900 dark:text-white truncate">
+                        {item.productName}
+                      </h5>
+                      {Object.keys(item.selectedProperties).length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(item.selectedProperties).map(([k, v]) => (
+                            <span key={k} className="text-[8px] bg-amber-500/10 text-amber-800 dark:text-amber-400 px-1 py-0.2 rounded font-bold">
+                              {k}: {v}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-black text-amber-800 dark:text-amber-400 shrink-0">
+                      الكمية: {item.quantity}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2.5">
+                <button
+                  onClick={() => {
+                    setCart(prev => {
+                      const updated = [...prev];
+                      for (const sharedItem of sharedCartItems) {
+                        const existingIdx = updated.findIndex(i => 
+                          i.productId === sharedItem.productId && 
+                          JSON.stringify(i.selectedProperties) === JSON.stringify(sharedItem.selectedProperties)
+                        );
+                        if (existingIdx > -1) {
+                          updated[existingIdx].quantity += sharedItem.quantity;
+                          updated[existingIdx].totalPrice = updated[existingIdx].price * updated[existingIdx].quantity;
+                        } else {
+                          updated.push(sharedItem);
+                        }
+                      }
+                      return updated;
+                    });
+                    setSharedCartItems(null);
+                    setActiveTab('cart');
+                    showToast('✓ تم دمج الأصناف المشتركة مع سلتكِ الحالية بنجاح! 🌸🛒');
+                  }}
+                  className="w-full py-3 bg-gradient-to-l from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-xs rounded-2xl shadow-md transition"
+                >
+                  دمج مع سلتي الحالية ➕
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCart(sharedCartItems);
+                    setSharedCartItems(null);
+                    setActiveTab('cart');
+                    showToast('✓ تم استبدال سلتكِ بالأصناف المشتركة بنجاح! 🌸🛒');
+                  }}
+                  className="w-full py-3 bg-gradient-to-l from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs rounded-2xl shadow-md transition"
+                >
+                  استبدال سلة التسوق بالكامل 🔄
+                </button>
+
+                <button
+                  onClick={() => setSharedCartItems(null)}
+                  className="w-full py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 font-extrabold text-xs rounded-2xl transition text-center"
+                >
+                  تجاهل ✕
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
