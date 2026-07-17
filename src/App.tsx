@@ -168,9 +168,10 @@ export default function App() {
     }
   });
 
-  // Keep cart synced to localStorage
+  // Keep cart synced to localStorage and Supabase
   useEffect(() => {
     localStorage.setItem('amrwh_cart_items', JSON.stringify(cart));
+    Database.syncCartToSupabase(cart);
   }, [cart]);
 
   // Targeted Notifications & Gifts States
@@ -289,6 +290,48 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(typeof window !== 'undefined' ? navigator.onLine : true);
   const [showWelcome, setShowWelcome] = useState<boolean>(true);
+  const [networkAlert, setNetworkAlert] = useState<string | null>(null);
+
+  // Monitor amrwh_network_slow custom event for smart Yemen Net / Starlink hybrid fallback
+  useEffect(() => {
+    let intervalId: any = null;
+
+    const handleNetworkSlow = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const hasCache = customEvent.detail?.hasCache;
+      if (hasCache) {
+        setNetworkAlert("اتصال الإنترنت لديك ضعيف، تم عرض البيانات المحفوظة وجاري التحديث في الخلفية... ⚠️");
+      } else {
+        setNetworkAlert("نواجه بطئاً في الشبكة، تم عرض الفئات والمنتجات الافتراضية وجاري جلب البيانات الحية... ⚠️");
+      }
+
+      // Automatically switch to quiet HTTP REST polling every 10 seconds until success
+      if (!intervalId) {
+        console.log("Setting up HTTP REST polling retry loop...");
+        intervalId = setInterval(async () => {
+          try {
+            console.log("Polling retry sync from Supabase...");
+            await Database.syncFromFirestore(() => {
+              handleReloadAll();
+              setNetworkAlert(null); // Clear the alert on success
+              if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+              }
+            }, true);
+          } catch (pollErr) {
+            console.log("Polling retry was throttled or failed, retrying in 10s:", pollErr);
+          }
+        }, 10000);
+      }
+    };
+
+    window.addEventListener('amrwh_network_slow', handleNetworkSlow);
+    return () => {
+      window.removeEventListener('amrwh_network_slow', handleNetworkSlow);
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
 
   const triggerSync = async () => {
     setIsSyncing(true);
@@ -469,6 +512,23 @@ export default function App() {
 
     // Sync asynchronously from Firestore
     triggerSync();
+
+    // Retrieve synced cart from Supabase if local cart is empty
+    const checkSyncedCart = async () => {
+      try {
+        const stored = localStorage.getItem('amrwh_cart_items');
+        const hasLocalCart = stored && JSON.parse(stored).length > 0;
+        if (!hasLocalCart) {
+          const syncedCart = await Database.getSyncedCartFromSupabase();
+          if (syncedCart && syncedCart.length > 0) {
+            setCart(syncedCart);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to restore synced cart on mount:', err);
+      }
+    };
+    checkSyncedCart();
 
     // Safety welcome screen timeout (max 4 seconds, shorter if already synced once)
     const hasData = Database.hasSyncedOnce();
@@ -1154,6 +1214,22 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* Network Fallback / Unstable Alert Banner */}
+          {networkAlert && (
+            <div className="bg-gradient-to-r from-amber-600 to-rose-600 text-white text-center py-2 px-3.5 flex items-center justify-between shadow-sm z-50 shrink-0 text-[11px] font-bold border-b border-amber-700/20 animate-pulse">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-white rounded-full animate-ping shrink-0" />
+                <span>{networkAlert}</span>
+              </div>
+              <button 
+                onClick={() => setNetworkAlert(null)}
+                className="text-white/80 hover:text-white font-black px-1.5 py-0.5 text-xs active:scale-90"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {/* Header branding logo section */}
           <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-4 py-4 border-b border-amber-100/40 dark:border-gray-800 shadow-sm flex justify-between items-center rounded-b-3xl shrink-0 z-50">
             {selectedProduct ? (
@@ -1239,6 +1315,7 @@ export default function App() {
                   onSelectProduct={(p) => setSelectedProduct(p)}
                   onOpenAdvisorChat={() => setIsAdvisorChatOpen(true)}
                   tickerTexts={tickerTexts}
+                  isLoading={isSyncing && !Database.hasSyncedOnce()}
                 />
               </motion.div>
             )}
@@ -1261,26 +1338,41 @@ export default function App() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                      {categories.map((cat) => (
-                        <div
-                          key={cat.id}
-                          onClick={() => {
-                            setSelectedCategoryInTab(cat);
-                          }}
-                          className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-sm hover:shadow-md border border-amber-100/20 cursor-pointer transition transform active:scale-98"
-                        >
-                          <img 
-                            referrerPolicy="no-referrer"
-                            src={getDirectImageUrl(cat.image)} 
-                            alt={cat.name} 
-                            className="w-full h-24 object-cover" 
-                          />
-                          <div className="p-3 text-center">
-                            <h4 className="text-xs font-black text-amber-950 dark:text-amber-300">{cat.name}</h4>
-                            <span className="text-[10px] text-gray-400 mt-0.5 inline-block">{cat.productCount || 0} صنف</span>
+                      {isSyncing && categories.length === 0 ? (
+                        [1, 2, 3, 4].map((idx) => (
+                          <div
+                            key={idx}
+                            className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-sm border border-amber-100/10 animate-pulse"
+                          >
+                            <div className="w-full h-24 bg-gray-200 dark:bg-gray-800" />
+                            <div className="p-3 space-y-2 flex flex-col items-center">
+                              <div className="w-2/3 h-3 bg-gray-200 dark:bg-gray-800 rounded animate-pulse" />
+                              <div className="w-1/3 h-2 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" />
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))
+                      ) : (
+                        categories.map((cat) => (
+                          <div
+                            key={cat.id}
+                            onClick={() => {
+                              setSelectedCategoryInTab(cat);
+                            }}
+                            className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-sm hover:shadow-md border border-amber-100/20 cursor-pointer transition transform active:scale-98"
+                          >
+                            <img 
+                              referrerPolicy="no-referrer"
+                              src={getDirectImageUrl(cat.image)} 
+                              alt={cat.name} 
+                              className="w-full h-24 object-cover" 
+                            />
+                            <div className="p-3 text-center">
+                              <h4 className="text-xs font-black text-amber-950 dark:text-amber-300">{cat.name}</h4>
+                              <span className="text-[10px] text-gray-400 mt-0.5 inline-block">{cat.productCount || 0} صنف</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </>
                 ) : (

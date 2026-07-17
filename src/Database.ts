@@ -23,7 +23,9 @@ import {
   ArchivedEvent,
   Contestant,
   VoteLog,
-  AppNotification
+  AppNotification,
+  OrderItem,
+  OrderStatus
 } from './types';
 import { db, COLLECTIONS, auth } from './firebase';
 import { collection, doc, getDoc, getDocs, setDoc as originalSetDoc, updateDoc as originalUpdateDoc, deleteDoc as originalDeleteDoc, query, where } from 'firebase/firestore';
@@ -180,9 +182,65 @@ const DEFAULT_USER: User = {
   isRegistered: false
 };
 
-const DEFAULT_CATEGORIES: Category[] = [];
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: 'cat_housewares', name: 'أدوات منزلية 🏠', image: 'https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&q=80&w=400', productCount: 3, sortOrder: 1 },
+  { id: 'cat_clothing', name: 'ملابس وأزياء 👗', image: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&q=80&w=400', productCount: 2, sortOrder: 2 },
+  { id: 'cat_cosmetics', name: 'مستحضرات تجميل 💄', image: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&q=80&w=400', productCount: 2, sortOrder: 3 },
+  { id: 'cat_toys', name: 'ألعاب أطفال 🧸', image: 'https://images.unsplash.com/photo-1531346878377-a5be20888e57?auto=format&fit=crop&q=80&w=400', productCount: 2, sortOrder: 4 }
+];
 
-const DEFAULT_PRODUCTS: Product[] = [];
+const DEFAULT_PRODUCTS: Product[] = [
+  {
+    id: 'prod_fallback_1',
+    code: 'HW-01',
+    name: 'طقم فناجين قهوة تركي فاخر ☕',
+    categoryId: 'cat_housewares',
+    categoryName: 'أدوات منزلية 🏠',
+    description: 'طقم فناجين قهوة بورسلان فاخر مع قاعدة ذهبية جذابة، مناسب للضيافة الراقية والمناسبات السعيدة.',
+    priceYERNew: 12000,
+    images: ['https://images.unsplash.com/photo-1517256064527-09c53b2d0ec6?auto=format&fit=crop&q=80&w=600'],
+    properties: [
+      { name: 'اللون', options: ['ذهبي', 'فضي', 'أبيض'] }
+    ],
+    isOnOffer: true,
+    offerPriceNew: 9500,
+    offerOldPrice: 12000,
+    rating: 5,
+    isFeatured: true
+  },
+  {
+    id: 'prod_fallback_2',
+    code: 'HW-02',
+    name: 'منظم مكياج أكريليك دوار 360 درجة ✨',
+    categoryId: 'cat_cosmetics',
+    categoryName: 'مستحضرات تجميل 💄',
+    description: 'منظم مكياج أكريليك شفاف دوار يوفر مساحة تخزين كبيرة لجميع مستحضرات التجميل وأدوات التزيين الخاصة بكِ.',
+    priceYERNew: 6500,
+    images: ['https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&q=80&w=600'],
+    properties: [],
+    isOnOffer: false,
+    rating: 4.8,
+    isFeatured: true
+  },
+  {
+    id: 'prod_fallback_3',
+    code: 'CL-01',
+    name: 'فستان صيفي بناتي ناعم 🌸',
+    categoryId: 'cat_clothing',
+    categoryName: 'ملابس وأزياء 👗',
+    description: 'فستان صيفي قطني بناتي بنقشات زهور جميلة وألوان زاهية، مريح ولطيف جداً للبشرة.',
+    priceYERNew: 8500,
+    images: ['https://images.unsplash.com/photo-1518831959646-742c3a14ebf7?auto=format&fit=crop&q=80&w=600'],
+    properties: [
+      { name: 'المقاس', options: ['2-3 سنوات', '4-5 سنوات', '6-7 سنوات'] }
+    ],
+    isOnOffer: true,
+    offerPriceNew: 7000,
+    offerOldPrice: 8500,
+    rating: 4.9,
+    isFeatured: true
+  }
+];
 
 const DEFAULT_EXCHANGE_RATE: ExchangeRate = {
   yerOldFactor: 2.9, // Price_Old = Price_New / 2.9 (round to higher 100)
@@ -522,8 +580,8 @@ export class Database {
       };
       saveToStorage(this.KEYS.USER, uniqueUser);
     }
-    if (!localStorage.getItem(this.KEYS.CATEGORIES)) saveToStorage(this.KEYS.CATEGORIES, DEFAULT_CATEGORIES);
-    if (!localStorage.getItem(this.KEYS.PRODUCTS)) saveToStorage(this.KEYS.PRODUCTS, DEFAULT_PRODUCTS);
+    if (!localStorage.getItem(this.KEYS.CATEGORIES)) saveToStorage(this.KEYS.CATEGORIES, []);
+    if (!localStorage.getItem(this.KEYS.PRODUCTS)) saveToStorage(this.KEYS.PRODUCTS, []);
     if (!localStorage.getItem(this.KEYS.ORDERS)) saveToStorage(this.KEYS.ORDERS, []);
     if (!localStorage.getItem(this.KEYS.EXCHANGE_RATE)) saveToStorage(this.KEYS.EXCHANGE_RATE, DEFAULT_EXCHANGE_RATE);
     if (!localStorage.getItem(this.KEYS.ADVISOR)) saveToStorage(this.KEYS.ADVISOR, DEFAULT_ADVISOR_SETTINGS);
@@ -843,49 +901,85 @@ export class Database {
 
       if (isSupabaseConfigured()) {
         console.log('Database Sync: Syncing from Supabase...');
-        const [
-          advRes,
-          admRes,
-          genRes,
-          catRes,
-          prodRes,
-          locRes,
-          usersRes,
-          orderRes,
-          giftRes,
-          rechRes,
-          phoneRes,
-          notifRes,
-          tNotifRes,
-          tGiftsRes,
-          tLogsRes,
-          tickerRes,
-          archivedEventsRes,
-          contestantsRes,
-          voteLogsRes,
-          appNotificationsRes
-        ] = await Promise.all([
-          supabase!.from('settings').select('*').eq('id', 'advisor').maybeSingle(),
-          supabase!.from('settings').select('*').eq('id', 'admin').maybeSingle(),
-          supabase!.from('settings').select('*').eq('id', 'general').maybeSingle(),
-          supabase!.from('categories').select('*'),
-          supabase!.from('products').select('*'),
-          supabase!.from('locations').select('*'),
-          supabase!.from('users').select('*'),
-          supabase!.from('orders').select('*'),
-          supabase!.from('gifts').select('*'),
-          supabase!.from('recharges').select('*'),
-          supabase!.from('phone_requests').select('*'),
-          supabase!.from('notifications').select('*'),
-          supabase!.from('targeted_notifications').select('*'),
-          supabase!.from('targeted_gifts').select('*'),
-          supabase!.from('targeted_gift_logs').select('*'),
-          supabase!.from('ticker_texts').select('*'),
-          supabase!.from('archived_events').select('*'),
-          supabase!.from('contestants').select('*'),
-          supabase!.from('vote_logs').select('*'),
-          supabase!.from('app_notifications').select('*')
-        ]);
+        let advRes, admRes, genRes, catRes, prodRes, locRes, usersRes, orderRes, giftRes, rechRes, phoneRes, notifRes, tNotifRes, tGiftsRes, tLogsRes, tickerRes, archivedEventsRes, contestantsRes, voteLogsRes, appNotificationsRes;
+        
+        let isFinished = false;
+        const slowTimeout = setTimeout(() => {
+          if (!isFinished) {
+            console.warn("Supabase sync taking more than 7s...");
+            if (typeof window !== 'undefined' && !this.hasSyncedOnce()) {
+              window.dispatchEvent(new CustomEvent('amrwh_network_slow', {
+                detail: {
+                  hasCache: false
+                }
+              }));
+            }
+          }
+        }, 7000);
+
+        try {
+          const results = await Promise.all([
+            supabase!.from('settings').select('*').eq('id', 'advisor').maybeSingle(),
+            supabase!.from('settings').select('*').eq('id', 'admin').maybeSingle(),
+            supabase!.from('settings').select('*').eq('id', 'general').maybeSingle(),
+            supabase!.from('categories').select('*'),
+            supabase!.from('products').select('*'),
+            supabase!.from('locations').select('*'),
+            supabase!.from('users').select('*'),
+            supabase!.from('orders').select('*'),
+            supabase!.from('gifts').select('*'),
+            supabase!.from('recharges').select('*'),
+            supabase!.from('phone_requests').select('*'),
+            supabase!.from('notifications').select('*'),
+            supabase!.from('targeted_notifications').select('*'),
+            supabase!.from('targeted_gifts').select('*'),
+            supabase!.from('targeted_gift_logs').select('*'),
+            supabase!.from('ticker_texts').select('*'),
+            supabase!.from('archived_events').select('*'),
+            supabase!.from('contestants').select('*'),
+            supabase!.from('vote_logs').select('*'),
+            supabase!.from('app_notifications').select('*')
+          ]);
+
+          isFinished = true;
+          clearTimeout(slowTimeout);
+
+          [
+            advRes,
+            admRes,
+            genRes,
+            catRes,
+            prodRes,
+            locRes,
+            usersRes,
+            orderRes,
+            giftRes,
+            rechRes,
+            phoneRes,
+            notifRes,
+            tNotifRes,
+            tGiftsRes,
+            tLogsRes,
+            tickerRes,
+            archivedEventsRes,
+            contestantsRes,
+            voteLogsRes,
+            appNotificationsRes
+          ] = results;
+        } catch (e: any) {
+          isFinished = true;
+          clearTimeout(slowTimeout);
+          console.error("Supabase sync failed with error:", e);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('amrwh_network_slow', {
+              detail: {
+                hasCache: this.hasSyncedOnce()
+              }
+            }));
+          }
+          if (onSyncComplete) onSyncComplete();
+          return;
+        }
 
         if (catRes.error) console.warn("Supabase categories load error:", catRes.error);
         if (prodRes.error) console.warn("Supabase products load error:", prodRes.error);
@@ -1983,7 +2077,7 @@ export class Database {
   // --- CATEGORIES ---
   static getCategories(): Category[] {
     this.initialize();
-    const cats = loadFromStorage<Category[]>(this.KEYS.CATEGORIES, DEFAULT_CATEGORIES);
+    const cats = loadFromStorage<Category[]>(this.KEYS.CATEGORIES, []);
     const prods = this.getProducts();
     // Recalculate product count dynamically
     return cats.map(c => ({
@@ -2088,7 +2182,7 @@ export class Database {
   // --- PRODUCTS ---
   static getProducts(): Product[] {
     this.initialize();
-    return loadFromStorage<Product[]>(this.KEYS.PRODUCTS, DEFAULT_PRODUCTS);
+    return loadFromStorage<Product[]>(this.KEYS.PRODUCTS, []);
   }
 
   static saveProduct(product: Product): void {
@@ -2751,7 +2845,7 @@ export class Database {
     }
   }
 
-  static updateOrderStatus(id: string, status: 'completed' | 'canceled'): void {
+  static updateOrderStatus(id: string, status: OrderStatus): void {
     const list = this.getOrders();
     const order = list.find(o => o.id === id);
     if (order) {
@@ -2766,31 +2860,46 @@ export class Database {
         updateDoc(doc(db, COLLECTIONS.ORDERS, id), { status }).catch(e => console.error("Firestore order update error:", e));
       }
 
-      // Send appropriate notification
-      if (status === 'completed') {
-        // Notification 1: Acceptance of new order
+      // Send appropriate notification based on new status
+      if (status === 'approved') {
         this.addNotification({
-          id: 'NOTIF_ACCEPT_' + id + '_' + Date.now(),
+          id: 'NOTIF_APP_' + id + '_' + Date.now(),
           userId: order.userId,
-          title: 'تم قبول وتأكيد طلبكِ بنجاح 👍🌸',
-          message: `تمت مراجعة وقبول طلبكِ المميّز ذو الرقم المرجعي (${order.id}) بنجاح من قبل الإدارة وسداد قيمته، ويجري الآن تجهيز طلبيتكِ بكل دقة وحب!`,
+          title: 'تم الموافقة على طلبكِ 👍🌸',
+          message: `تمت مراجعة وقبول طلبكِ المميّز ذو الرقم المرجعي (${order.id}) بنجاح من قبل الإدارة، ويجري الآن نقله لقسم التجهيز!`,
           createdAt: new Date().toISOString(),
           isRead: false
         });
-
-        // Notification 2: Conversion to received/shipped order (cheerful, in transit)
+      } else if (status === 'preparing') {
+        this.addNotification({
+          id: 'NOTIF_PREP_' + id + '_' + Date.now(),
+          userId: order.userId,
+          title: 'طلبكِ قيد التجهيز الآن 🌸🎨',
+          message: `عزيزتنا، طلبيتكِ ذات الرقم (${order.id}) هي الآن قيد التجهيز والتعبئة بكل حب ورعاية في مخازننا لتصلكِ بأفضل حُلّة!`,
+          createdAt: new Date().toISOString(),
+          isRead: false
+        });
+      } else if (status === 'shipping') {
         this.addNotification({
           id: 'NOTIF_SHIP_' + id + '_' + Date.now(),
           userId: order.userId,
           title: 'طلبكِ الرائع في الطريق إليكِ! 🚚🎉',
-          message: `مبارك لكِ يا عزيزتي! 😍✨ طلبكِ المميّز ذو الرقم المرجعي (${order.id}) قد انطلق الآن وهو في طريقهِ السريع إليكِ بابتهاج وسرور! استعدي لاستلامه وتزيّني وتدلّلي به دائماً مع أم روح 🌸🥳`,
-          createdAt: new Date(Date.now() + 1000).toISOString(), // slightly newer timestamp so it sorts on top
+          message: `مبارك لكِ يا عزيزتي! 😍✨ طلبكِ المميّز ذو الرقم المرجعي (${order.id}) قد انطلق الآن مع مندوب التوصيل وهو في طريقهِ السريع إليكِ! استعدي لاستلامه دائماً مع أم روح 🌸🥳`,
+          createdAt: new Date().toISOString(),
           isRead: false
         });
-      } else {
-        // Canceled notification
+      } else if (status === 'completed') {
         this.addNotification({
-          id: 'NOTIF_' + Date.now(),
+          id: 'NOTIF_COMP_' + id + '_' + Date.now(),
+          userId: order.userId,
+          title: 'تم تسليم طلبكِ بنجاح! ✅🌸',
+          message: `أهلاً بكِ يا غالية، تم تأكيد تسليم طلبكِ ذو الرقم المرجعي (${order.id}) بنجاح. تمنياتنا لكِ بجمال دائم وتجربة تسوق سعيدة!`,
+          createdAt: new Date().toISOString(),
+          isRead: false
+        });
+      } else if (status === 'canceled') {
+        this.addNotification({
+          id: 'NOTIF_CAN_' + Date.now(),
           userId: order.userId,
           title: 'تنبيه: تم إلغاء الطلب ❌',
           message: `لقد تم إلغاء طلبك ذو الرقم المرجعي (${order.id}). إذا كنتِ تعتقدين أن هناك خطأ أو لمزيد من الاستفسار يرجى الاتصال بمستشارتنا روح 🌸.`,
@@ -3560,5 +3669,58 @@ export class Database {
     const list = this.getBlockedDevices();
     const cleanId = deviceId.split('|IP:')[0];
     return list.some(d => d.split('|IP:')[0] === cleanId);
+  }
+
+  // --- PERSISTENT ACTIVE CARTS SYNCHRONIZATION ---
+  static async syncCartToSupabase(cartItems: OrderItem[]): Promise<void> {
+    if (!isSupabaseConfigured()) return;
+    const deviceId = this.getDeviceId();
+    const user = this.getUser();
+    const userId = user && user.id && user.id !== 'USER_DEFAULT' ? user.id : null;
+    try {
+      await supabase!.from('active_carts').upsert({
+        id: deviceId,
+        items: cartItems,
+        userId: userId,
+        updatedAt: new Date().toISOString()
+      });
+      console.log('Cart synced to Supabase successfully');
+    } catch (e) {
+      console.warn('Failed to sync cart to Supabase:', e);
+    }
+  }
+
+  static async getSyncedCartFromSupabase(): Promise<OrderItem[] | null> {
+    if (!isSupabaseConfigured()) return null;
+    const deviceId = this.getDeviceId();
+    try {
+      const { data, error } = await supabase!.from('active_carts').select('items').eq('id', deviceId).maybeSingle();
+      if (error) {
+        console.warn('Failed to retrieve synced cart:', error);
+        return null;
+      }
+      return data ? (data.items as OrderItem[]) : null;
+    } catch (e) {
+      console.warn('Error fetching synced cart from Supabase:', e);
+      return null;
+    }
+  }
+
+  static async getAllActiveCarts(): Promise<any[]> {
+    if (!isSupabaseConfigured()) return [];
+    try {
+      const { data, error } = await supabase!
+        .from('active_carts')
+        .select('*')
+        .order('updatedAt', { ascending: false });
+      if (error) {
+        console.warn('Failed to retrieve all active carts:', error);
+        return [];
+      }
+      return data || [];
+    } catch (e) {
+      console.warn('Error fetching all active carts from Supabase:', e);
+      return [];
+    }
   }
 }

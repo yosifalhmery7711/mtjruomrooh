@@ -66,7 +66,7 @@ export interface OrderItem {
   totalPrice: number;
 }
 
-export type OrderStatus = 'pending' | 'completed' | 'canceled';
+export type OrderStatus = 'pending' | 'approved' | 'preparing' | 'shipping' | 'completed' | 'canceled';
 
 export interface Order {
   id: string;
@@ -146,6 +146,8 @@ export interface AdminSettings {
   eventDescription?: string; // وصف الفعالية
   eventWinnerPrize?: string; // جائزة الفعالية
   featuredSpeed?: number; // سرعة التمرير التلقائي للأصناف المميزة بالثواني
+  packageName?: string; // اسم الحزمة للتطبيق
+  sha256Fingerprint?: string; // بصمة SHA-256 للتوقيع الرقمي
 }
 
 export interface OfferImage {
