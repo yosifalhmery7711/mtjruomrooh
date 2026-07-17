@@ -24,6 +24,7 @@ DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS locations CASCADE;
 DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS ticker_texts CASCADE;
+DROP TABLE IF EXISTS active_carts CASCADE;
 DROP TABLE IF EXISTS settings CASCADE;
 
 -- ==========================================
@@ -35,6 +36,15 @@ CREATE TABLE settings (
   id VARCHAR(255) PRIMARY KEY,
   data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ج. جدول السلال النشطة الحالية (Active Carts) لتزامن السلال عبر السحابة ومنع ضياعها
+CREATE TABLE active_carts (
+  id VARCHAR(255) PRIMARY KEY, -- يمثل معرف الجهاز (deviceId)
+  items JSONB DEFAULT '[]'::jsonb,
+  "userId" VARCHAR(255),
+  "updatedAt" VARCHAR(100),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ب. شريط الأخبار المتحرك (Ticker Texts)

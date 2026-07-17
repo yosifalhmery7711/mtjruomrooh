@@ -248,6 +248,49 @@ ${catalogText}
   }
 });
 
+// API Route: serve Android assetlinks.json dynamically for TWA/APK package verification to hide address bar
+app.get('/.well-known/assetlinks.json', async (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const supabaseUrl = cleanEnv(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL);
+    const supabaseAnonKey = cleanEnv(process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY);
+    if (supabaseUrl && supabaseAnonKey) {
+      const client = createClient(supabaseUrl, supabaseAnonKey);
+      const { data } = await client.from('settings').select('*').eq('id', 'admin').maybeSingle();
+      if (data && data.data) {
+        const adminSettings = data.data;
+        const sha256 = adminSettings.sha256Fingerprint || '33:4B:9C:E3:6B:42:0E:64:1B:11:D3:FC:B5:72:0D:20:9B:6C:EE:80:C2:5E:28:FE:8B:D8:1A:1D:95:C7:E2:E8';
+        const packageName = adminSettings.packageName || 'com.ruh.store';
+        return res.json([
+          {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+              "namespace": "android_app",
+              "package_name": packageName,
+              "sha256_cert_fingerprints": [sha256]
+            }
+          }
+        ]);
+      }
+    }
+  } catch (err) {
+    console.error('Error serving assetlinks.json dynamically:', err);
+  }
+
+  // Fallback to default
+  const defaultSha256 = '33:4B:9C:E3:6B:42:0E:64:1B:11:D3:FC:B5:72:0D:20:9B:6C:EE:80:C2:5E:28:FE:8B:D8:1A:1D:95:C7:E2:E8';
+  res.json([
+    {
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.ruh.store",
+        "sha256_cert_fingerprints": [defaultSha256]
+      }
+    }
+  ]);
+});
+
 // API Route: Get Supabase database status, table checks and size in MB with real metadata queries and fallback
 app.get('/api/supabase/status', async (req, res) => {
   try {
